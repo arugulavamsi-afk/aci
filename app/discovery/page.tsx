@@ -52,6 +52,28 @@ function quoteToDisplay(q: LiveQuote): DisplayStock {
   };
 }
 
+// Stub for stocks not yet returned by Yahoo Finance
+function symbolToStub(symbol: string, name: string): DisplayStock {
+  const curated = curatedMap.get(symbol);
+  const stub: LiveQuote = {
+    symbol, name: name || curated?.name || symbol,
+    cmp: 0, change: 0, changePct: 0,
+    marketCap: null, marketCapLabel: '—',
+    pe: null, forwardPe: null, pb: null,
+    roe: null, operatingMargin: null, grossMargin: null, profitMargin: null,
+    revenueGrowth: null, earningsGrowth: null, debtEquity: null,
+    sector: curated?.sector ?? '', industry: curated?.industry ?? '',
+    week52High: 0, week52Low: 0, volume: 0,
+  };
+  return {
+    quote: stub,
+    name: stub.name,
+    watchlisted: curated?.watchlisted ?? false,
+    isCurated: !!curated,
+    tailwindThemes: curated?.tailwindThemes ?? [],
+  };
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function DiscoveryPage() {
@@ -89,18 +111,26 @@ export default function DiscoveryPage() {
     setPage(1);
 
     try {
-      // Step 1: symbol list
+      // Step 1: fetch full symbol list and immediately seed all stocks as stubs
       const symRes = await fetch('/api/nse/symbols', { signal });
       if (!symRes.ok) throw new Error(`Symbol fetch failed: ${symRes.status}`);
-      const { symbols } = await symRes.json() as { symbols: { symbol: string }[] };
+      const { symbols } = await symRes.json() as { symbols: { symbol: string; name: string }[] };
       setLoadingSymbols(false);
 
-      // Curated stocks first so they appear at top
+      // Curated stocks first, then the rest — seed ALL as stubs so count is correct immediately
       const curatedSymbols = curatedStocks.map(s => s.ticker);
-      const rest = symbols.map(s => s.symbol).filter(s => !curatedMap.has(s));
-      const ordered = [...curatedSymbols, ...rest];
+      const restSymbols = symbols.filter(s => !curatedMap.has(s.symbol));
+      const allSymbols = [
+        ...curatedStocks.map(s => ({ symbol: s.ticker, name: s.name })),
+        ...restSymbols,
+      ];
 
-      // Step 2: batch quotes (prices + financials in one call per batch)
+      // Seed table with stub entries for every symbol right away
+      setAllStocks(allSymbols.map(s => symbolToStub(s.symbol, s.name)));
+
+      const ordered = allSymbols.map(s => s.symbol);
+
+      // Step 2: batch quotes — update stubs with live data as each batch returns
       const batches: string[][] = [];
       for (let i = 0; i < ordered.length; i += BATCH_SIZE) batches.push(ordered.slice(i, i + BATCH_SIZE));
       setTotalBatches(batches.length);
@@ -113,6 +143,7 @@ export default function DiscoveryPage() {
           const { quotes } = await r.json() as { quotes: LiveQuote[] };
           setAllStocks(prev => {
             const map = new Map(prev.map(s => [s.quote.symbol, s]));
+            // Update only symbols Yahoo Finance returned; stubs for the rest remain
             quotes.map(quoteToDisplay).forEach(d => map.set(d.quote.symbol, d));
             return Array.from(map.values());
           });
