@@ -1,6 +1,7 @@
 'use client';
 
-import { portfolioStats, stocks, scoreBreakdown } from '@/lib/data/mockData';
+import { useState, useEffect } from 'react';
+import { stocks as curatedStocks, scoreBreakdown } from '@/lib/data/mockData';
 import StatCard from '@/components/ui/StatCard';
 import ThemeHeatmap from '@/components/dashboard/ThemeHeatmap';
 import TopStocks from '@/components/dashboard/TopStocks';
@@ -9,9 +10,34 @@ import ScoreGauge from '@/components/ui/ScoreGauge';
 import ScoreBar from '@/components/ui/ScoreBar';
 import { BarChart3, Target, Star, TrendingUp, Zap, Award } from 'lucide-react';
 import Link from 'next/link';
+import type { LiveQuote } from '@/lib/nse/types';
+import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
 
 export default function Dashboard() {
-  const highConviction = stocks.filter(s => s.conviction === 'High').length;
+  const [quotes, setQuotes] = useState<LiveQuote[]>([]);
+  const [totalNse, setTotalNse] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const symbols = curatedStocks.map(s => s.ticker).join(',');
+    Promise.all([
+      fetch(`/api/nse/quotes?symbols=${symbols}`).then(r => r.json()),
+      fetch('/api/nse/symbols').then(r => r.json()),
+    ]).then(([quotesData, symbolsData]) => {
+      setQuotes(quotesData.quotes ?? []);
+      setTotalNse(symbolsData.count ?? 0);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, []);
+
+  // Live stats from real data
+  const scores = quotes.map(q => computeIscfScore(q));
+  const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+  const highConviction = scores.filter(s => scoreToConviction(s) === 'High').length;
+  const watchlistCount = curatedStocks.filter(s => s.watchlisted).length;
+
+  // Best score for the gauge
+  const bestScore = scores.length > 0 ? Math.max(...scores) : 86;
 
   return (
     <div className="p-6 space-y-6 bg-mesh">
@@ -43,47 +69,46 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Portfolio KPIs */}
+      {/* Portfolio KPIs — live */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Stocks Tracked"
-          value={portfolioStats.totalStocks}
-          sub="Across 12 sectors"
+          label="NSE Stocks Tracked"
+          value={loaded ? totalNse : curatedStocks.length}
+          sub={loaded ? `${totalNse} listed equities` : 'Loading…'}
           icon={<BarChart3 size={14} />}
           color="#0c7b93"
           trend={12}
         />
         <StatCard
           label="Avg Compounder Score"
-          value={portfolioStats.avgCompoundScore}
-          sub="ISCF 7-factor model"
+          value={loaded ? avgScore : '—'}
+          sub="ISCF 7-factor model · Live"
           icon={<Award size={14} />}
           color="#d4a853"
         />
         <StatCard
           label="High Conviction"
-          value={highConviction}
-          sub="Score ≥ 80 threshold"
+          value={loaded ? highConviction : '—'}
+          sub="Score ≥ 78 threshold"
           icon={<Target size={14} />}
           color="#10b981"
           trend={6}
         />
         <StatCard
           label="Watchlist"
-          value={portfolioStats.watchlist}
+          value={watchlistCount}
           sub="Active monitoring"
           icon={<Star size={14} />}
           color="#8b5cf6"
         />
       </div>
 
-      {/* Second row — chart + ISCF breakdown */}
+      {/* Chart + ISCF breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <PortfolioChart />
         </div>
 
-        {/* ISCF Score Breakdown */}
         <div className="glass-card p-6">
           <div className="mb-4">
             <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>ISCF Score Model</h2>
@@ -93,9 +118,9 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-col items-center mb-6">
-            <ScoreGauge score={86} size="md" />
+            <ScoreGauge score={loaded ? bestScore : 86} size="md" />
             <p className="text-xs mt-3 text-center" style={{ color: 'rgba(232,236,244,0.4)', fontSize: '11px' }}>
-              Avg score — High Conviction basket
+              {loaded ? 'Highest score — curated universe' : 'Loading live scores…'}
             </p>
           </div>
 
@@ -117,14 +142,13 @@ export default function Dashboard() {
       {/* Theme heatmap */}
       <ThemeHeatmap />
 
-      {/* Top stocks + quick insights */}
+      {/* Top stocks + AI insight */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <TopStocks />
         </div>
 
         <div className="space-y-4">
-          {/* AI Insight card */}
           <div
             className="glass-card p-5"
             style={{ borderColor: 'rgba(212,168,83,0.15)', background: 'linear-gradient(135deg, rgba(212,168,83,0.06), rgba(10,14,26,0.9))' }}
@@ -141,7 +165,6 @@ export default function Dashboard() {
             </Link>
           </div>
 
-          {/* Score legend */}
           <div className="glass-card p-5">
             <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Score Categories</h3>
             <div className="space-y-2.5">
@@ -153,15 +176,11 @@ export default function Dashboard() {
                 { range: '< 60', label: 'Avoid', color: '#ef4444' },
               ].map(item => (
                 <div key={item.range} className="flex items-center gap-3">
-                  <div
-                    className="w-8 h-5 rounded-md flex items-center justify-center text-xs font-black"
-                    style={{ background: `${item.color}20`, color: item.color, fontSize: '9px' }}
-                  >
+                  <div className="w-8 h-5 rounded-md flex items-center justify-center text-xs font-black"
+                    style={{ background: `${item.color}20`, color: item.color, fontSize: '9px' }}>
                     {item.range.split('–')[0]}
                   </div>
-                  <span className="text-xs" style={{ color: 'rgba(232,236,244,0.55)', fontSize: '12px' }}>
-                    {item.label}
-                  </span>
+                  <span className="text-xs" style={{ color: 'rgba(232,236,244,0.55)', fontSize: '12px' }}>{item.label}</span>
                   <div className="ml-auto w-2 h-2 rounded-full" style={{ background: item.color }} />
                 </div>
               ))}

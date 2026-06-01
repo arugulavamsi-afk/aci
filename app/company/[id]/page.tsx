@@ -1,16 +1,18 @@
 'use client';
 
-import { use, useState } from 'react';
-import { stocks, revenueData, moatRadarData, riskData, scoreBreakdown } from '@/lib/data/mockData';
-import { getScoreColor, getScoreLabel, getRiskColor } from '@/lib/utils';
+import { use, useState, useEffect } from 'react';
+import { stocks as curatedStocks, revenueData, moatRadarData, riskData, scoreBreakdown } from '@/lib/data/mockData';
+import { getScoreColor, getScoreLabel } from '@/lib/utils';
 import ScoreGauge from '@/components/ui/ScoreGauge';
 import ScoreBar from '@/components/ui/ScoreBar';
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
-import { Star, TrendingUp, TrendingDown, Shield, Zap, Building2, MapPin, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Star, TrendingUp, TrendingDown, Shield, Zap, Building2, MapPin, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import type { LiveQuote, StockFundamentals } from '@/lib/nse/types';
+import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -18,15 +20,22 @@ interface PageProps {
 
 const TABS = ['Overview', 'Financials', 'Management', 'Moat', 'Valuation', 'Risk', 'AI Thesis'];
 
+// Build a lookup that matches by both id and ticker (case-insensitive)
+const curatedByIdOrTicker = new Map<string, typeof curatedStocks[0]>();
+curatedStocks.forEach(s => {
+  curatedByIdOrTicker.set(s.id.toLowerCase(), s);
+  curatedByIdOrTicker.set(s.ticker.toLowerCase(), s);
+});
+
 const revenueSegments = [
-  { name: 'Defense Electronics', value: 58, color: '#d4a853' },
-  { name: 'Homeland Security', value: 18, color: '#0c7b93' },
-  { name: 'Railway Systems', value: 14, color: '#10b981' },
-  { name: 'Export & Others', value: 10, color: '#8b5cf6' },
+  { name: 'Primary Business', value: 58, color: '#d4a853' },
+  { name: 'Secondary Segment', value: 18, color: '#0c7b93' },
+  { name: 'Other Verticals', value: 14, color: '#10b981' },
+  { name: 'Export & Misc', value: 10, color: '#8b5cf6' },
 ];
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) => {
-  if (active && payload && payload.length) {
+  if (active && payload?.length) {
     return (
       <div className="custom-tooltip">
         <p className="text-xs font-semibold mb-1" style={{ color: 'rgba(232,236,244,0.5)' }}>{label}</p>
@@ -41,18 +50,76 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
   return null;
 };
 
+function val(v: number | null | undefined, suffix = '') {
+  return v != null ? `${v}${suffix}` : '—';
+}
+
 export default function CompanyPage({ params }: PageProps) {
   const { id } = use(params);
   const [tab, setTab] = useState('Overview');
   const [watchlisted, setWatchlisted] = useState(false);
+  const [quote, setQuote] = useState<LiveQuote | null>(null);
+  const [fundamentals, setFundamentals] = useState<StockFundamentals | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const stock = stocks.find(s => s.id === id) || stocks[8]; // Default to BEL
-  const color = getScoreColor(stock.compoundScore);
-  const isUp = stock.changePct >= 0;
+  // Resolve curated stock and ticker symbol
+  const curated = curatedByIdOrTicker.get(id.toLowerCase());
+  const ticker = curated?.ticker ?? id.toUpperCase();
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetch(`/api/nse/quotes?symbols=${ticker}`).then(r => r.json()),
+      fetch(`/api/nse/stock/${ticker}`).then(r => r.json()),
+    ]).then(([qData, fData]) => {
+      const q: LiveQuote | undefined = qData.quotes?.[0];
+      if (q) setQuote(q);
+      if (fData.fundamentals) setFundamentals(fData.fundamentals);
+      if (curated?.watchlisted) setWatchlisted(curated.watchlisted);
+    }).finally(() => setLoading(false));
+  }, [ticker, curated]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-full bg-mesh">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={28} className="animate-spin" style={{ color: '#d4a853' }} />
+          <p className="text-sm" style={{ color: 'rgba(232,236,244,0.45)' }}>Loading {ticker}…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Merge live data with curated metadata
+  const name   = quote?.name || curated?.name || ticker;
+  const sector = quote?.sector || curated?.sector || '';
+  const industry = quote?.industry || curated?.industry || '';
+  const cmp    = quote?.cmp ?? curated?.cmp ?? 0;
+  const change = quote?.change ?? curated?.change ?? 0;
+  const changePct = quote?.changePct ?? curated?.changePct ?? 0;
+  const marketCapLabel = quote?.marketCapLabel ?? curated?.marketCapLabel ?? '—';
+  const pe     = quote?.pe ?? curated?.pe ?? null;
+  const pb     = fundamentals?.pb ?? quote?.pb ?? curated?.pb ?? null;
+  const evEbitda = fundamentals?.evEbitda ?? curated?.evEbitda ?? null;
+  const roe    = fundamentals?.roe ?? curated?.roe ?? null;
+  const debtEquity = fundamentals?.debtEquity ?? curated?.debtEquity ?? null;
+  const revGrowth = fundamentals?.revenueCagr3y ?? fundamentals?.revenueGrowthYoy ?? curated?.revenueCagr3y ?? null;
+  const opMargin = fundamentals?.operatingMargin ?? null;
+  const description = fundamentals?.description || curated?.description || '';
+  const city   = fundamentals?.city || curated?.headquarters || '';
+  const week52High = quote?.week52High ?? 0;
+  const week52Low  = quote?.week52Low ?? 0;
+
+  const score = quote ? computeIscfScore(quote) : (curated?.compoundScore ?? 70);
+  const conviction = scoreToConviction(score);
+  const color = getScoreColor(score);
+  const isUp  = changePct >= 0;
+
+  const convColor = conviction === 'High' ? '#10b981' : conviction === 'Medium' ? '#f59e0b' : '#ef4444';
 
   const mgmtScoreItems = [
-    { label: 'Promoter Holding', score: stock.promoterHolding > 50 ? 7 : stock.promoterHolding > 35 ? 5 : 3, max: 8, color: '#10b981' },
-    { label: 'Capital Allocation', score: 6, max: 7, color: '#0c7b93' },
+    { label: 'Capital Allocation (ROE)', score: roe != null ? Math.min(8, Math.round(roe / 4)) : (curated ? (curated.promoterHolding > 50 ? 7 : 5) : 5), max: 8, color: '#10b981' },
+    { label: 'Operating Efficiency', score: opMargin != null ? Math.min(7, Math.round(opMargin / 4)) : 6, max: 7, color: '#0c7b93' },
     { label: 'Governance Quality', score: 5, max: 5, color: '#d4a853' },
   ];
 
@@ -61,28 +128,27 @@ export default function CompanyPage({ params }: PageProps) {
       {/* Sticky header */}
       <div className="sticky top-0 z-20 glass-strong px-6 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div className="flex items-center gap-4">
-          {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-xs" style={{ color: 'rgba(232,236,244,0.35)' }}>
             <Link href="/" style={{ color: 'rgba(232,236,244,0.35)' }}>Home</Link>
             <ChevronRight size={10} />
             <Link href="/discovery" style={{ color: 'rgba(232,236,244,0.35)' }}>Discovery</Link>
             <ChevronRight size={10} />
-            <span style={{ color: '#d4a853' }}>{stock.ticker}</span>
+            <span style={{ color: '#d4a853' }}>{ticker}</span>
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            {/* Price */}
             <div className="text-right">
-              <div className="font-black metric-number text-lg" style={{ color: '#e8ecf4' }}>₹{stock.cmp}</div>
+              <div className="font-black metric-number text-lg" style={{ color: '#e8ecf4' }}>
+                {cmp > 0 ? `₹${cmp.toFixed(2)}` : '—'}
+              </div>
               <div className="flex items-center justify-end gap-1">
                 {isUp ? <TrendingUp size={10} color="#10b981" /> : <TrendingDown size={10} color="#ef4444" />}
                 <span className="text-xs font-semibold" style={{ color: isUp ? '#10b981' : '#ef4444' }}>
-                  {isUp ? '+' : ''}₹{stock.change} ({stock.changePct.toFixed(2)}%)
+                  {isUp ? '+' : ''}₹{Math.abs(change).toFixed(2)} ({changePct.toFixed(2)}%)
                 </span>
               </div>
             </div>
 
-            {/* Watchlist */}
             <button
               onClick={() => setWatchlisted(!watchlisted)}
               className="p-2.5 rounded-xl transition-all duration-200"
@@ -95,62 +161,65 @@ export default function CompanyPage({ params }: PageProps) {
             </button>
 
             <Link href="/copilot" className="btn-primary text-xs py-2">
-              <Zap size={12} />
-              AI Analysis
+              <Zap size={12} /> AI Analysis
             </Link>
           </div>
         </div>
       </div>
 
       <div className="p-6 space-y-6">
-        {/* Company hero */}
+        {/* Hero */}
         <div className="glass-card p-6" style={{ borderColor: `${color}20` }}>
           <div className="flex items-start gap-6">
-            {/* Logo/avatar */}
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black flex-shrink-0"
-              style={{ background: `${color}18`, color, border: `2px solid ${color}30`, fontSize: '20px' }}
-            >
-              {stock.ticker.slice(0, 2)}
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black flex-shrink-0"
+              style={{ background: `${color}18`, color, border: `2px solid ${color}30`, fontSize: '20px' }}>
+              {ticker.slice(0, 2)}
             </div>
 
             <div className="flex-1">
               <div className="flex items-start justify-between">
                 <div>
-                  <h1 className="text-2xl font-black" style={{ color: '#e8ecf4' }}>{stock.name}</h1>
+                  <h1 className="text-2xl font-black" style={{ color: '#e8ecf4' }}>{name}</h1>
                   <div className="flex items-center gap-3 mt-1">
-                    <span className="text-sm font-bold" style={{ color: 'rgba(232,236,244,0.4)' }}>{stock.ticker}</span>
-                    <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
-                    <div className="flex items-center gap-1" style={{ color: 'rgba(232,236,244,0.4)' }}>
-                      <MapPin size={11} />
-                      <span className="text-xs">{stock.headquarters}</span>
-                    </div>
-                    <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
-                    <div className="flex items-center gap-1" style={{ color: 'rgba(232,236,244,0.4)' }}>
-                      <Building2 size={11} />
-                      <span className="text-xs">{stock.sector}</span>
-                    </div>
+                    <span className="text-sm font-bold" style={{ color: 'rgba(232,236,244,0.4)' }}>{ticker}</span>
+                    {city && (
+                      <>
+                        <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                        <div className="flex items-center gap-1" style={{ color: 'rgba(232,236,244,0.4)' }}>
+                          <MapPin size={11} /><span className="text-xs">{city}</span>
+                        </div>
+                      </>
+                    )}
+                    {sector && (
+                      <>
+                        <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                        <div className="flex items-center gap-1" style={{ color: 'rgba(232,236,244,0.4)' }}>
+                          <Building2 size={11} /><span className="text-xs">{sector}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <p className="text-sm mt-3 max-w-2xl leading-relaxed" style={{ color: 'rgba(232,236,244,0.55)' }}>
-                    {stock.description}
-                  </p>
+                  {description && (
+                    <p className="text-sm mt-3 max-w-2xl leading-relaxed" style={{ color: 'rgba(232,236,244,0.55)' }}>
+                      {description.slice(0, 280)}{description.length > 280 ? '…' : ''}
+                    </p>
+                  )}
                 </div>
-
                 <div className="flex-shrink-0 ml-4">
-                  <ScoreGauge score={stock.compoundScore} size="lg" />
+                  <ScoreGauge score={score} size="lg" />
                 </div>
               </div>
 
               {/* Metrics row */}
               <div className="grid grid-cols-4 lg:grid-cols-7 gap-3 mt-5">
                 {[
-                  { label: 'Market Cap', value: stock.marketCapLabel, color: '#e8ecf4' },
-                  { label: 'ROCE', value: `${stock.roce}%`, color: stock.roce > 20 ? '#10b981' : '#f59e0b' },
-                  { label: 'ROE', value: `${stock.roe}%`, color: stock.roe > 18 ? '#10b981' : '#f59e0b' },
-                  { label: 'D/E Ratio', value: stock.debtEquity.toFixed(2), color: stock.debtEquity < 0.5 ? '#10b981' : stock.debtEquity < 1 ? '#f59e0b' : '#ef4444' },
-                  { label: 'Promoter', value: `${stock.promoterHolding}%`, color: stock.promoterHolding > 50 ? '#10b981' : '#f59e0b' },
-                  { label: 'Rev CAGR', value: `${stock.revenueCagr3y}%`, color: '#0c7b93' },
-                  { label: 'PAT CAGR', value: `${stock.profitCagr3y}%`, color: '#d4a853' },
+                  { label: 'Market Cap',  value: marketCapLabel,              color: '#e8ecf4' },
+                  { label: 'ROE',         value: val(roe, '%'),                color: (roe ?? 0) > 18 ? '#10b981' : '#f59e0b' },
+                  { label: 'Op Margin',   value: val(opMargin, '%'),           color: (opMargin ?? 0) > 15 ? '#10b981' : '#f59e0b' },
+                  { label: 'D/E Ratio',   value: debtEquity != null ? `${debtEquity}x` : '—', color: (debtEquity ?? 0) < 0.5 ? '#10b981' : (debtEquity ?? 0) < 1 ? '#f59e0b' : '#ef4444' },
+                  { label: 'Rev Growth',  value: val(revGrowth, '%'),          color: '#0c7b93' },
+                  { label: 'P/E',         value: pe ? `${pe.toFixed(1)}x` : '—', color: '#d4a853' },
+                  { label: 'Conviction',  value: conviction,                   color: convColor },
                 ].map(m => (
                   <div key={m.label} className="text-center p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                     <div className="font-black metric-number text-base" style={{ color: m.color }}>{m.value}</div>
@@ -159,20 +228,36 @@ export default function CompanyPage({ params }: PageProps) {
                 ))}
               </div>
 
-              {/* Themes */}
-              <div className="flex items-center gap-2 mt-4">
-                <span className="text-xs" style={{ color: 'rgba(232,236,244,0.3)', fontSize: '10.5px' }}>Tailwind Themes:</span>
-                {stock.tailwindThemes.map(t => (
-                  <span key={t} className="badge" style={{ background: 'rgba(12,123,147,0.12)', color: '#2bb5d4', border: '1px solid rgba(12,123,147,0.2)' }}>
-                    {t}
+              {/* 52W range */}
+              {week52High > 0 && (
+                <div className="mt-4 flex items-center gap-3">
+                  <span className="text-xs" style={{ color: 'rgba(232,236,244,0.3)', fontSize: '10.5px' }}>
+                    52W: ₹{week52Low.toFixed(0)} — ₹{week52High.toFixed(0)}
                   </span>
-                ))}
-                {stock.moatType.slice(0, 2).map(m => (
-                  <span key={m} className="badge" style={{ background: 'rgba(212,168,83,0.08)', color: '#d4a853', border: '1px solid rgba(212,168,83,0.15)' }}>
-                    {m}
+                  <div className="flex-1 h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                    <div className="h-full rounded-full" style={{
+                      width: `${Math.round(((cmp - week52Low) / (week52High - week52Low)) * 100)}%`,
+                      background: `linear-gradient(90deg, ${color}60, ${color})`
+                    }} />
+                  </div>
+                  <span className="text-xs font-bold" style={{ color, fontSize: '10.5px' }}>
+                    {Math.round(((cmp - week52Low) / (week52High - week52Low)) * 100)}% of range
                   </span>
-                ))}
-              </div>
+                </div>
+              )}
+
+              {/* Themes & moat badges */}
+              {curated && (
+                <div className="flex items-center gap-2 mt-4 flex-wrap">
+                  <span className="text-xs" style={{ color: 'rgba(232,236,244,0.3)', fontSize: '10.5px' }}>Themes:</span>
+                  {curated.tailwindThemes.map(t => (
+                    <span key={t} className="badge" style={{ background: 'rgba(12,123,147,0.12)', color: '#2bb5d4', border: '1px solid rgba(12,123,147,0.2)' }}>{t}</span>
+                  ))}
+                  {curated.moatType.slice(0, 2).map(m => (
+                    <span key={m} className="badge" style={{ background: 'rgba(212,168,83,0.08)', color: '#d4a853', border: '1px solid rgba(212,168,83,0.15)' }}>{m}</span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -180,26 +265,20 @@ export default function CompanyPage({ params }: PageProps) {
         {/* Tabs */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1">
           {TABS.map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
+            <button key={t} onClick={() => setTab(t)}
               className="flex-shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200"
               style={{
                 background: tab === t ? 'linear-gradient(135deg, rgba(212,168,83,0.15), rgba(12,123,147,0.1))' : 'rgba(255,255,255,0.04)',
                 color: tab === t ? '#d4a853' : 'rgba(232,236,244,0.45)',
                 border: tab === t ? '1px solid rgba(212,168,83,0.2)' : '1px solid rgba(255,255,255,0.05)',
-              }}
-            >
-              {t}
-            </button>
+              }}>{t}</button>
           ))}
         </div>
 
-        {/* Tab: Overview */}
+        {/* Overview */}
         {tab === 'Overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {/* Revenue trend */}
               <div className="glass-card p-6">
                 <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>10-Year Revenue & Profit Trend</h3>
                 <ResponsiveContainer width="100%" height={200}>
@@ -222,19 +301,7 @@ export default function CompanyPage({ params }: PageProps) {
                     <Area type="monotone" dataKey="profit" name="Profit" stroke="#d4a853" strokeWidth={2} fill="url(#profGrad)" dot={false} />
                   </AreaChart>
                 </ResponsiveContainer>
-                <div className="flex items-center gap-4 mt-2">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-px" style={{ background: '#0c7b93', height: 2 }} />
-                    <span className="text-xs" style={{ color: 'rgba(232,236,244,0.4)', fontSize: '10.5px' }}>Revenue (₹Cr)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-px" style={{ background: '#d4a853', height: 2 }} />
-                    <span className="text-xs" style={{ color: 'rgba(232,236,244,0.4)', fontSize: '10.5px' }}>Profit (₹Cr)</span>
-                  </div>
-                </div>
               </div>
-
-              {/* EPS & FCF */}
               <div className="glass-card p-6">
                 <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>EPS & Free Cash Flow</h3>
                 <ResponsiveContainer width="100%" height={160}>
@@ -243,28 +310,19 @@ export default function CompanyPage({ params }: PageProps) {
                     <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="eps" name="EPS (₹)" fill="#10b981" radius={[4, 4, 0, 0]} opacity={0.8} />
-                    <Bar dataKey="fcf" name="FCF (₹Cr)" fill="#8b5cf6" radius={[4, 4, 0, 0]} opacity={0.6} />
+                    <Bar dataKey="eps" name="EPS (₹)" fill="#10b981" radius={[4,4,0,0]} opacity={0.8} />
+                    <Bar dataKey="fcf" name="FCF (₹Cr)" fill="#8b5cf6" radius={[4,4,0,0]} opacity={0.6} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
-
-            {/* Right panel */}
             <div className="space-y-4">
-              {/* Revenue pie */}
               <div className="glass-card p-5">
                 <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Revenue Segments</h3>
                 <div className="flex justify-center mb-4">
                   <PieChart width={160} height={160}>
-                    <Pie
-                      data={revenueSegments}
-                      cx={80} cy={80} innerRadius={45} outerRadius={72}
-                      paddingAngle={3} dataKey="value"
-                    >
-                      {revenueSegments.map((entry, index) => (
-                        <Cell key={index} fill={entry.color} stroke="none" />
-                      ))}
+                    <Pie data={revenueSegments} cx={80} cy={80} innerRadius={45} outerRadius={72} paddingAngle={3} dataKey="value">
+                      {revenueSegments.map((entry, index) => <Cell key={index} fill={entry.color} stroke="none" />)}
                     </Pie>
                   </PieChart>
                 </div>
@@ -280,19 +338,11 @@ export default function CompanyPage({ params }: PageProps) {
                   ))}
                 </div>
               </div>
-
-              {/* ISCF Score breakdown */}
               <div className="glass-card p-5">
                 <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>ISCF Score Breakdown</h3>
                 <div className="space-y-3">
                   {scoreBreakdown.map(item => (
-                    <ScoreBar
-                      key={item.category}
-                      label={item.category}
-                      score={item.score}
-                      maxScore={item.weight}
-                      color={item.color}
-                    />
+                    <ScoreBar key={item.category} label={item.category} score={item.score} maxScore={item.weight} color={item.color} />
                   ))}
                 </div>
               </div>
@@ -300,18 +350,18 @@ export default function CompanyPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Tab: Financials */}
+        {/* Financials */}
         {tab === 'Financials' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="glass-card p-6">
-              <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Financial Quality Engine</h3>
+              <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Financial Quality Engine — Live Data</h3>
               <div className="space-y-4">
                 {[
-                  { label: 'Revenue CAGR (3Y)', value: `${stock.revenueCagr3y}%`, score: Math.min(15, Math.round(stock.revenueCagr3y / 3)), max: 15, color: '#0c7b93', good: stock.revenueCagr3y > 15 },
-                  { label: 'Profit CAGR (3Y)', value: `${stock.profitCagr3y}%`, score: Math.min(15, Math.round(stock.profitCagr3y / 3.5)), max: 15, color: '#d4a853', good: stock.profitCagr3y > 20 },
-                  { label: 'ROCE', value: `${stock.roce}%`, score: Math.min(15, Math.round(stock.roce / 2)), max: 15, color: '#10b981', good: stock.roce > 20 },
-                  { label: 'ROE', value: `${stock.roe}%`, score: Math.min(15, Math.round(stock.roe / 2)), max: 15, color: '#8b5cf6', good: stock.roe > 18 },
-                  { label: 'Debt / Equity', value: `${stock.debtEquity}x`, score: stock.debtEquity < 0.3 ? 15 : stock.debtEquity < 0.7 ? 11 : stock.debtEquity < 1.5 ? 7 : 3, max: 15, color: stock.debtEquity < 0.5 ? '#10b981' : '#f59e0b', good: stock.debtEquity < 0.5 },
+                  { label: 'Revenue Growth', value: val(revGrowth, '%'), score: revGrowth != null ? Math.min(15, Math.round(revGrowth / 3)) : 0, max: 15, color: '#0c7b93', good: (revGrowth ?? 0) > 15 },
+                  { label: 'Return on Equity', value: val(roe, '%'), score: roe != null ? Math.min(15, Math.round(roe / 2)) : 0, max: 15, color: '#d4a853', good: (roe ?? 0) > 18 },
+                  { label: 'Operating Margin', value: val(opMargin, '%'), score: opMargin != null ? Math.min(15, Math.round(opMargin / 2)) : 0, max: 15, color: '#10b981', good: (opMargin ?? 0) > 15 },
+                  { label: 'P/E Ratio', value: pe ? `${pe.toFixed(1)}x` : '—', score: pe ? Math.min(15, Math.round(50 / pe * 5)) : 0, max: 15, color: '#8b5cf6', good: (pe ?? 100) < 40 },
+                  { label: 'Debt / Equity', value: debtEquity != null ? `${debtEquity}x` : '—', score: debtEquity != null ? (debtEquity < 0.3 ? 15 : debtEquity < 0.7 ? 11 : debtEquity < 1.5 ? 7 : 3) : 0, max: 15, color: debtEquity != null && debtEquity < 0.5 ? '#10b981' : '#f59e0b', good: (debtEquity ?? 1) < 0.5 },
                 ].map(m => (
                   <div key={m.label} className="space-y-1.5">
                     <div className="flex items-center justify-between">
@@ -324,14 +374,11 @@ export default function CompanyPage({ params }: PageProps) {
                   </div>
                 ))}
               </div>
-              <div className="mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-sm" style={{ color: '#e8ecf4' }}>Financial Quality Score</span>
-                  <span className="text-2xl font-black metric-number" style={{ color: '#10b981' }}>{stock.financialScore}<span className="text-sm" style={{ color: 'rgba(232,236,244,0.3)' }}>/15</span></span>
-                </div>
+              <div className="mt-5 pt-4 flex items-center justify-between" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <span className="font-bold text-sm" style={{ color: '#e8ecf4' }}>ISCF Score (Live)</span>
+                <span className="text-2xl font-black metric-number" style={{ color }}>{score}<span className="text-sm" style={{ color: 'rgba(232,236,244,0.3)' }}>/100</span></span>
               </div>
             </div>
-
             <div className="glass-card p-6">
               <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Historical Profit Growth</h3>
               <ResponsiveContainer width="100%" height={240}>
@@ -340,33 +387,31 @@ export default function CompanyPage({ params }: PageProps) {
                   <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="profit" name="Net Profit" fill="#d4a853" radius={[4, 4, 0, 0]} opacity={0.85} />
+                  <Bar dataKey="profit" name="Net Profit" fill="#d4a853" radius={[4,4,0,0]} opacity={0.85} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
 
-        {/* Tab: Management */}
+        {/* Management */}
         {tab === 'Management' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 glass-card p-6">
               <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Management Quality Engine</h3>
               <div className="space-y-5">
                 {mgmtScoreItems.map(item => (
-                  <div key={item.label}>
-                    <ScoreBar label={item.label} score={item.score} maxScore={item.max} color={item.color} />
-                  </div>
+                  <ScoreBar key={item.label} label={item.label} score={item.score} maxScore={item.max} color={item.color} />
                 ))}
               </div>
               <div className="mt-6 grid grid-cols-2 gap-4">
                 {[
                   { label: 'Auditor Resignations', status: 'None', good: true },
-                  { label: 'Promoter Pledging', status: '0%', good: true },
+                  { label: 'Promoter Pledging', status: curated ? `${curated.promoterHolding > 50 ? '0%' : 'Check'}` : 'N/A', good: true },
                   { label: 'Equity Dilution', status: 'Minimal', good: true },
                   { label: 'Related Party Txns', status: 'Within Limits', good: true },
                   { label: 'Dividend Track Record', status: 'Consistent', good: true },
-                  { label: 'Management Tenure', status: '8+ Years', good: true },
+                  { label: 'D/E Ratio', status: debtEquity != null ? `${debtEquity}x` : '—', good: (debtEquity ?? 1) < 0.8 },
                 ].map(item => (
                   <div key={item.label} className="flex items-center justify-between p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
                     <span className="text-xs" style={{ color: 'rgba(232,236,244,0.5)' }}>{item.label}</span>
@@ -374,19 +419,17 @@ export default function CompanyPage({ params }: PageProps) {
                       background: item.good ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
                       color: item.good ? '#10b981' : '#ef4444',
                       border: `1px solid ${item.good ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
-                    }}>
-                      {item.status}
-                    </span>
+                    }}>{item.status}</span>
                   </div>
                 ))}
               </div>
             </div>
             <div className="glass-card p-5 flex flex-col items-center">
               <h3 className="font-bold text-sm mb-4 self-start" style={{ color: '#e8ecf4' }}>Management Score</h3>
-              <ScoreGauge score={Math.round((stock.managementScore / 20) * 100)} size="lg" showLabel={false} />
+              <ScoreGauge score={Math.round((mgmtScoreItems.reduce((a,b) => a + b.score, 0) / mgmtScoreItems.reduce((a,b) => a + b.max, 0)) * 100)} size="lg" showLabel={false} />
               <div className="text-center mt-4">
                 <div className="text-3xl font-black metric-number" style={{ color: '#10b981' }}>
-                  {stock.managementScore}<span className="text-lg" style={{ color: 'rgba(232,236,244,0.3)' }}>/20</span>
+                  {mgmtScoreItems.reduce((a,b) => a + b.score, 0)}<span className="text-lg" style={{ color: 'rgba(232,236,244,0.3)' }}>/{mgmtScoreItems.reduce((a,b) => a + b.max, 0)}</span>
                 </div>
                 <p className="text-xs mt-1" style={{ color: 'rgba(232,236,244,0.4)' }}>Management Quality Score</p>
               </div>
@@ -394,7 +437,7 @@ export default function CompanyPage({ params }: PageProps) {
                 <div className="flex items-start gap-2">
                   <Shield size={12} style={{ color: '#10b981', marginTop: 2 }} />
                   <p className="text-xs leading-relaxed" style={{ color: 'rgba(232,236,244,0.55)', fontSize: '11.5px' }}>
-                    <strong style={{ color: '#10b981' }}>Strong governance.</strong> Promoter holding above 51% with zero pledging indicates strong alignment with minority shareholders.
+                    <strong style={{ color: '#10b981' }}>Live financials.</strong> ROE of {val(roe, '%')} and D/E of {debtEquity != null ? `${debtEquity}x` : '—'} reflect real-time balance sheet strength from Yahoo Finance.
                   </p>
                 </div>
               </div>
@@ -402,7 +445,7 @@ export default function CompanyPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Tab: Moat */}
+        {/* Moat */}
         {tab === 'Moat' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="glass-card p-6">
@@ -417,68 +460,60 @@ export default function CompanyPage({ params }: PageProps) {
             </div>
             <div className="glass-card p-6">
               <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Moat Analysis</h3>
-              <div className="space-y-3 mb-5">
-                {stock.moatType.map((m, i) => (
-                  <div key={m} className="flex items-start gap-3 p-3 rounded-xl" style={{ background: 'rgba(212,168,83,0.04)', border: '1px solid rgba(212,168,83,0.08)' }}>
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0" style={{ background: 'rgba(212,168,83,0.15)', color: '#d4a853', fontSize: '10px' }}>
-                      {i + 1}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-xs" style={{ color: '#d4a853', fontSize: '12px' }}>{m}</div>
-                      <div className="text-xs mt-0.5" style={{ color: 'rgba(232,236,244,0.45)', fontSize: '11px' }}>
-                        {m === 'Technology IP' ? 'Proprietary tech with 40+ patents across defense electronics' :
-                         m === 'Defense Relationships' ? 'Decades of MoD trust and qualification processes create 5–7 year switching costs' :
-                         m === 'Scale Advantage' ? 'Production scale of ₹20,000+ Cr enables cost leadership' :
-                         m === 'Regulatory Moat' ? 'Defense sector clearances take 3–5 years to obtain, creating durable barriers' :
-                         'Sustainable competitive advantage driving long-term returns'}
+              {curated?.moatType ? (
+                <div className="space-y-3 mb-5">
+                  {curated.moatType.map((m, i) => (
+                    <div key={m} className="flex items-start gap-3 p-3 rounded-xl" style={{ background: 'rgba(212,168,83,0.04)', border: '1px solid rgba(212,168,83,0.08)' }}>
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0" style={{ background: 'rgba(212,168,83,0.15)', color: '#d4a853', fontSize: '10px' }}>{i + 1}</div>
+                      <div>
+                        <div className="font-semibold text-xs" style={{ color: '#d4a853', fontSize: '12px' }}>{m}</div>
+                        <div className="text-xs mt-0.5" style={{ color: 'rgba(232,236,244,0.45)', fontSize: '11px' }}>Sustainable competitive advantage driving long-term returns</div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-              <div className="p-4 rounded-xl" style={{ background: 'rgba(212,168,83,0.04)', border: '1px solid rgba(212,168,83,0.1)' }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Zap size={12} style={{ color: '#d4a853' }} />
-                  <span className="text-xs font-bold" style={{ color: '#d4a853' }}>AI Moat Summary</span>
+                  ))}
                 </div>
-                <p className="text-xs leading-relaxed" style={{ color: 'rgba(232,236,244,0.55)', fontSize: '11.5px' }}>
-                  This company is <strong style={{ color: '#e8ecf4' }}>extremely difficult to disrupt</strong> due to a combination of regulatory barriers (defense clearances), technology IP, and entrenched government relationships built over decades. The combination of Atmanirbhar Bharat policy tailwind + captive order flow creates a near-impenetrable competitive position for the next 10–15 years.
-                </p>
-              </div>
+              ) : (
+                <div className="space-y-3 mb-5">
+                  {['Scale & Market Position', 'Operational Excellence', 'Brand & Relationships'].map((m, i) => (
+                    <div key={m} className="flex items-start gap-3 p-3 rounded-xl" style={{ background: 'rgba(212,168,83,0.04)', border: '1px solid rgba(212,168,83,0.08)' }}>
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0" style={{ background: 'rgba(212,168,83,0.15)', color: '#d4a853', fontSize: '10px' }}>{i + 1}</div>
+                      <div className="font-semibold text-xs" style={{ color: '#d4a853', fontSize: '12px' }}>{m}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="mt-4 flex items-center justify-between p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                <span className="font-bold text-sm" style={{ color: '#e8ecf4' }}>Moat Score</span>
-                <span className="text-2xl font-black metric-number" style={{ color: '#d4a853' }}>{stock.moatScore}<span className="text-sm" style={{ color: 'rgba(232,236,244,0.3)' }}>/15</span></span>
+                <span className="font-bold text-sm" style={{ color: '#e8ecf4' }}>ISCF Score</span>
+                <span className="text-2xl font-black metric-number" style={{ color }}>{score}<span className="text-sm" style={{ color: 'rgba(232,236,244,0.3)' }}>/100</span></span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab: Valuation */}
+        {/* Valuation */}
         {tab === 'Valuation' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="glass-card p-6">
-              <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Valuation Metrics</h3>
+              <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Valuation Metrics — Live</h3>
               <div className="space-y-4">
                 {[
-                  { label: 'P/E Ratio', current: stock.pe, historical: 32.4, industry: 28.6, unit: 'x' },
-                  { label: 'P/B Ratio', current: stock.pb, historical: 6.8, industry: 5.2, unit: 'x' },
-                  { label: 'EV/EBITDA', current: stock.evEbitda, historical: 22.4, industry: 18.8, unit: 'x' },
-                  { label: 'PEG Ratio', current: 1.54, historical: 2.1, industry: 1.8, unit: 'x' },
+                  { label: 'P/E Ratio',  current: pe,       historical: 32.4, industry: 28.6, unit: 'x' },
+                  { label: 'P/B Ratio',  current: pb,       historical: 6.8,  industry: 5.2,  unit: 'x' },
+                  { label: 'EV/EBITDA',  current: evEbitda, historical: 22.4, industry: 18.8, unit: 'x' },
                 ].map(m => {
+                  if (!m.current) return null;
                   const vs = m.current / m.historical;
                   const verdict = vs < 0.85 ? 'Undervalued' : vs < 1.15 ? 'Fairly Valued' : 'Premium';
-                  const verdictColor = vs < 0.85 ? '#10b981' : vs < 1.15 ? '#f59e0b' : '#ef4444';
+                  const vColor = vs < 0.85 ? '#10b981' : vs < 1.15 ? '#f59e0b' : '#ef4444';
                   return (
                     <div key={m.label} className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <div className="flex items-center justify-between mb-3">
                         <span className="font-semibold text-sm" style={{ color: '#e8ecf4' }}>{m.label}</span>
-                        <span className="badge" style={{ background: `${verdictColor}15`, color: verdictColor, border: `1px solid ${verdictColor}25` }}>
-                          {verdict}
-                        </span>
+                        <span className="badge" style={{ background: `${vColor}15`, color: vColor, border: `1px solid ${vColor}25` }}>{verdict}</span>
                       </div>
                       <div className="grid grid-cols-3 gap-3">
                         <div className="text-center">
-                          <div className="font-black metric-number text-lg" style={{ color: '#d4a853' }}>{m.current}{m.unit}</div>
+                          <div className="font-black metric-number text-lg" style={{ color: '#d4a853' }}>{m.current.toFixed(1)}{m.unit}</div>
                           <div className="text-xs" style={{ color: 'rgba(232,236,244,0.3)', fontSize: '10px' }}>Current</div>
                         </div>
                         <div className="text-center">
@@ -494,22 +529,15 @@ export default function CompanyPage({ params }: PageProps) {
                   );
                 })}
               </div>
-              <div className="mt-4 p-3 rounded-xl flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                <span className="font-bold text-sm" style={{ color: '#e8ecf4' }}>Valuation Score</span>
-                <span className="text-2xl font-black metric-number" style={{ color: '#f59e0b' }}>{stock.valuationScore}<span className="text-sm" style={{ color: 'rgba(232,236,244,0.3)' }}>/5</span></span>
-              </div>
             </div>
             <div className="glass-card p-6">
               <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>PE Band History</h3>
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={[
-                  { year: '2020', pe: 22, high: 28, low: 18 },
-                  { year: '2021', pe: 30, high: 36, low: 24 },
-                  { year: '2022', pe: 26, high: 32, low: 20 },
-                  { year: '2023', pe: 34, high: 42, low: 28 },
-                  { year: '2024', pe: 38, high: 46, low: 32 },
-                  { year: '2025', pe: 42, high: 52, low: 36 },
-                  { year: '2026', pe: 38.4, high: 50, low: 32 },
+                  { year: '2020', pe: 22, high: 28, low: 18 }, { year: '2021', pe: 30, high: 36, low: 24 },
+                  { year: '2022', pe: 26, high: 32, low: 20 }, { year: '2023', pe: 34, high: 42, low: 28 },
+                  { year: '2024', pe: 38, high: 46, low: 32 }, { year: '2025', pe: 42, high: 52, low: 36 },
+                  { year: '2026', pe: pe ?? 38, high: 50, low: 32 },
                 ]} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                   <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -524,7 +552,7 @@ export default function CompanyPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Tab: Risk */}
+        {/* Risk */}
         {tab === 'Risk' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="glass-card p-6">
@@ -537,29 +565,35 @@ export default function CompanyPage({ params }: PageProps) {
                         {r.level === 'High' ? <AlertTriangle size={12} style={{ color: r.color }} /> : <Shield size={12} style={{ color: r.color }} />}
                         <span className="text-sm font-semibold" style={{ color: '#e8ecf4' }}>{r.category}</span>
                       </div>
-                      <span className="badge" style={{ background: `${r.color}15`, color: r.color, border: `1px solid ${r.color}25` }}>
-                        {r.level}
-                      </span>
+                      <span className="badge" style={{ background: `${r.color}15`, color: r.color, border: `1px solid ${r.color}25` }}>{r.level}</span>
                     </div>
                     <div className="score-bar">
                       <div className="score-bar-fill" style={{ width: `${r.score}%`, background: `linear-gradient(90deg, ${r.color}60, ${r.color})` }} />
                     </div>
-                    <div className="text-xs mt-1.5" style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10.5px' }}>
-                      Risk intensity: {r.score}/100
-                    </div>
                   </div>
                 ))}
+                {/* Live leverage risk */}
+                {debtEquity != null && (
+                  <div className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${debtEquity > 1 ? '#ef444415' : '#10b98115'}` }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Shield size={12} style={{ color: debtEquity > 1 ? '#ef4444' : '#10b981' }} />
+                        <span className="text-sm font-semibold" style={{ color: '#e8ecf4' }}>Leverage Risk (Live)</span>
+                      </div>
+                      <span className="badge" style={{ background: debtEquity > 1 ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)', color: debtEquity > 1 ? '#ef4444' : '#10b981', border: `1px solid ${debtEquity > 1 ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'}` }}>
+                        D/E {debtEquity}x
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <div className="glass-card p-6">
               <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Risk Heatmap</h3>
               <div className="grid grid-cols-3 gap-2 mb-4">
                 {riskData.map(r => (
-                  <div
-                    key={r.category}
-                    className="heat-cell p-3 flex flex-col gap-1"
-                    style={{ background: `${r.color}${Math.round(r.score / 5).toString(16).padStart(2,'0')}`, border: `1px solid ${r.color}30` }}
-                  >
+                  <div key={r.category} className="heat-cell p-3 flex flex-col gap-1"
+                    style={{ background: `${r.color}${Math.round(r.score / 5).toString(16).padStart(2,'0')}`, border: `1px solid ${r.color}30` }}>
                     <span className="text-xs font-semibold" style={{ color: '#e8ecf4', fontSize: '10.5px' }}>{r.category}</span>
                     <span className="text-xs" style={{ color: r.color, fontSize: '11px', fontWeight: 700 }}>{r.level}</span>
                   </div>
@@ -571,65 +605,41 @@ export default function CompanyPage({ params }: PageProps) {
                   <span className="text-xs font-bold" style={{ color: '#10b981' }}>Risk Summary</span>
                 </div>
                 <p className="text-xs leading-relaxed" style={{ color: 'rgba(232,236,244,0.55)', fontSize: '11.5px' }}>
-                  Overall risk profile is <strong style={{ color: '#10b981' }}>Low-to-Moderate</strong>. Primary watch point is customer concentration (85%+ revenue from government/PSU customers). However, this is mitigated by the structural nature of India&apos;s defense indigenization program providing long-term policy visibility.
+                  Overall risk profile is <strong style={{ color: '#10b981' }}>Low-to-Moderate</strong>.{' '}
+                  {debtEquity != null ? `Current D/E of ${debtEquity}x indicates ${debtEquity < 0.5 ? 'conservative leverage.' : debtEquity < 1 ? 'manageable leverage.' : 'elevated leverage — monitor closely.'}` : ''}
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab: AI Thesis */}
+        {/* AI Thesis */}
         {tab === 'AI Thesis' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {[
               {
-                title: 'Bull Case',
-                emoji: '🚀',
-                color: '#10b981',
-                target: '₹380–420',
-                upside: '+55–70%',
-                points: [
-                  'India\'s defense budget reaches 3% of GDP by FY28, accelerating domestic procurement',
-                  'Export-led revenue doubles to ₹6,000 Cr by FY27 as Western nations diversify supply chains',
-                  'Radar and electronic warfare order book ₹65,000 Cr+ with 3-year executable pipeline',
-                  'Margin expansion from 15% → 18% EBITDA as higher-value systems dominate revenue mix',
-                ],
-                triggers: ['Defense budget announcement', 'Large export order', 'New product launch'],
+                title: 'Bull Case', emoji: '🚀', color: '#10b981',
+                target: pe ? `₹${(cmp * 1.6).toFixed(0)}–${(cmp * 1.8).toFixed(0)}` : 'N/A',
+                upside: '+60–80%',
+                points: ['Sector tailwind accelerates with policy support', 'Revenue growth compounds at 20-25% CAGR', 'Margin expansion from operating leverage', 'Export / new market penetration adds growth layer'],
+                triggers: ['Policy announcement', 'Large order win', 'Earnings beat'],
               },
               {
-                title: 'Base Case',
-                emoji: '📊',
-                color: '#d4a853',
-                target: '₹280–320',
-                upside: '+15–30%',
-                points: [
-                  'Revenue CAGR of 18–22% driven by steady domestic defense order execution',
-                  'EBITDA margins stable at 14–16% as product mix evolves',
-                  'Order book maintains 3x coverage on annual revenue',
-                  'Dividend payout ratio of 25–30% continues, rewarding patient investors',
-                ],
-                triggers: ['Quarterly order inflows', 'Budget allocation', 'Q2 earnings beat'],
+                title: 'Base Case', emoji: '📊', color: '#d4a853',
+                target: pe ? `₹${(cmp * 1.15).toFixed(0)}–${(cmp * 1.35).toFixed(0)}` : 'N/A',
+                upside: '+15–35%',
+                points: ['Steady revenue growth of 12-18% CAGR', 'Margins stable with sector conditions', 'Order book maintains 2-3x revenue coverage', 'Dividend payout continues for shareholders'],
+                triggers: ['Quarterly results in line', 'Budget allocation', 'Sector growth data'],
               },
               {
-                title: 'Bear Case',
-                emoji: '⚠️',
-                color: '#ef4444',
-                target: '₹180–220',
-                downside: '-10–27%',
-                points: [
-                  'Budget constraints delay procurement cycles, creating execution shortfalls',
-                  'Import content remains elevated as indigenous supply chains develop slowly',
-                  'Competition from private sector (L&T Defense, TATA Advanced Systems) intensifies',
-                  'Global defense tech companies enter India through JV routes at attractive terms',
-                ],
-                triggers: ['Budget cuts', 'Order cancellations', 'Import policy reversal'],
+                title: 'Bear Case', emoji: '⚠️', color: '#ef4444',
+                target: pe ? `₹${(cmp * 0.75).toFixed(0)}–${(cmp * 0.90).toFixed(0)}` : 'N/A',
+                downside: '-10–25%',
+                points: ['Macro slowdown delays capex cycles', 'Margin pressure from input cost inflation', 'Competition intensifies in core segments', 'Valuation compression if growth disappoints'],
+                triggers: ['Earnings miss', 'Sector headwinds', 'Macro deterioration'],
               },
             ].map(scenario => (
-              <div
-                key={scenario.title}
-                className="glass-card p-5"
-                style={{ borderColor: `${scenario.color}20` }}
-              >
+              <div key={scenario.title} className="glass-card p-5" style={{ borderColor: `${scenario.color}20` }}>
                 <div className="flex items-center gap-2 mb-4">
                   <span className="text-xl">{scenario.emoji}</span>
                   <div>
@@ -640,7 +650,6 @@ export default function CompanyPage({ params }: PageProps) {
                     </div>
                   </div>
                 </div>
-
                 <ul className="space-y-2 mb-4">
                   {scenario.points.map((p, i) => (
                     <li key={i} className="flex items-start gap-2">
@@ -649,39 +658,46 @@ export default function CompanyPage({ params }: PageProps) {
                     </li>
                   ))}
                 </ul>
-
                 <div className="pt-3" style={{ borderTop: `1px solid ${scenario.color}15` }}>
                   <p className="text-xs font-semibold mb-1.5" style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10px' }}>KEY TRIGGERS</p>
                   <div className="flex flex-wrap gap-1">
                     {scenario.triggers.map(t => (
-                      <span key={t} className="badge" style={{ background: `${scenario.color}10`, color: scenario.color, border: `1px solid ${scenario.color}20`, fontSize: '9.5px' }}>
-                        {t}
-                      </span>
+                      <span key={t} className="badge" style={{ background: `${scenario.color}10`, color: scenario.color, border: `1px solid ${scenario.color}20`, fontSize: '9.5px' }}>{t}</span>
                     ))}
                   </div>
                 </div>
               </div>
             ))}
-
-            {/* Long-term potential */}
             <div className="lg:col-span-3 glass-card p-6" style={{ borderColor: 'rgba(212,168,83,0.15)', background: 'linear-gradient(135deg, rgba(212,168,83,0.04), rgba(10,14,26,0.95))' }}>
               <div className="flex items-center gap-2 mb-4">
                 <Zap size={16} style={{ color: '#d4a853' }} />
-                <h3 className="font-bold text-sm" style={{ color: '#d4a853' }}>10-Year Investment Thesis — {stock.name}</h3>
+                <h3 className="font-bold text-sm" style={{ color: '#d4a853' }}>10-Year Investment Thesis — {name}</h3>
               </div>
               <p className="text-sm leading-relaxed" style={{ color: 'rgba(232,236,244,0.6)', maxWidth: '720px', lineHeight: '1.8' }}>
-                {stock.name} represents a <strong style={{ color: '#e8ecf4' }}>generational compounder opportunity</strong> at the intersection of India&apos;s two most powerful structural themes: defense indigenization and digital sovereignty. With a captive order book, government-backed revenue visibility, expanding international footprint, and a management team with proven capital allocation discipline, the company is positioned to compound earnings at 20–25% CAGR over a decade. The current valuation, while not cheap in absolute terms, is reasonable relative to the <strong style={{ color: '#d4a853' }}>quality and longevity of the growth runway</strong>. ISCF Score of {stock.compoundScore} places this firmly in the <strong style={{ color: '#d4a853' }}>{getScoreLabel(stock.compoundScore)}</strong> category.
+                <strong style={{ color: '#e8ecf4' }}>{name}</strong> operates in{' '}
+                <strong style={{ color: '#d4a853' }}>{sector || industry}</strong> — one of India&apos;s high-conviction structural growth sectors.
+                With live ROE of <strong style={{ color: '#e8ecf4' }}>{val(roe, '%')}</strong> and revenue growth of{' '}
+                <strong style={{ color: '#e8ecf4' }}>{val(revGrowth, '%')}</strong>, the company demonstrates{' '}
+                {(roe ?? 0) > 18 ? 'strong capital efficiency' : 'improving fundamentals'}.
+                Current ISCF score of <strong style={{ color: '#d4a853' }}>{score}/100</strong> places it in the{' '}
+                <strong style={{ color: '#d4a853' }}>{getScoreLabel(score)}</strong> category.
               </p>
               <div className="flex items-center gap-4 mt-4">
                 <div className="flex items-center gap-2">
                   <TrendingUp size={14} style={{ color: '#10b981' }} />
-                  <span className="text-xs font-semibold" style={{ color: '#10b981' }}>10Y Target: 8–12x from current levels</span>
+                  <span className="text-xs font-semibold" style={{ color: '#10b981' }}>
+                    Conviction: <strong>{conviction}</strong>
+                  </span>
                 </div>
                 <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
                 <div className="flex items-center gap-2">
                   <Star size={14} style={{ color: '#d4a853' }} />
-                  <span className="text-xs font-semibold" style={{ color: '#d4a853' }}>ISCF Conviction: {stock.conviction}</span>
+                  <span className="text-xs font-semibold" style={{ color: '#d4a853' }}>ISCF Score: {score}/100 (Live)</span>
                 </div>
+                <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                <Link href="/copilot" className="flex items-center gap-1 text-xs font-semibold" style={{ color: '#2bb5d4' }}>
+                  <Zap size={11} /> Ask AI for deeper analysis
+                </Link>
               </div>
             </div>
           </div>
