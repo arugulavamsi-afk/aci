@@ -10,6 +10,7 @@ import {
 import Link from 'next/link';
 import ScoreGauge from '@/components/ui/ScoreGauge';
 import type { LiveQuote } from '@/lib/nse/types';
+import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,9 @@ const curatedMap = new Map(
 
 function liveQuoteToDisplay(q: LiveQuote): DisplayStock {
   const curated = curatedMap.get(q.symbol);
+  const algoScore = computeIscfScore(q);
+  const compoundScore = curated?.compoundScore ?? algoScore;
+  const conviction = curated?.conviction ?? scoreToConviction(algoScore);
   return {
     symbol: q.symbol,
     name: q.name || curated?.name || q.symbol,
@@ -74,8 +78,8 @@ function liveQuoteToDisplay(q: LiveQuote): DisplayStock {
     industry: q.industry || curated?.industry || '',
     week52High: q.week52High,
     week52Low: q.week52Low,
-    compoundScore: curated?.compoundScore ?? null,
-    conviction: curated?.conviction ?? null,
+    compoundScore,
+    conviction,
     tailwindThemes: curated?.tailwindThemes ?? [],
     roce: curated?.roce ?? null,
     roe: curated?.roe ?? null,
@@ -283,7 +287,7 @@ export default function DiscoveryPage() {
               onClick={() => setCuratedOnly(v => !v)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${curatedOnly ? 'btn-primary' : 'btn-ghost'}`}
             >
-              ISCF Analysed
+              Deep Analysis Only
             </button>
             <button
               onClick={() => setView('table')}
