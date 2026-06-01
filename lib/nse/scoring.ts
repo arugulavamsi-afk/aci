@@ -1,4 +1,4 @@
-import type { LiveQuote, StockFundamentals } from './types';
+import type { LiveQuote } from './types';
 
 // ── Sector tailwind (out of 25) ───────────────────────────────────────────────
 const SECTOR_TAILWIND: Record<string, number> = {
@@ -33,16 +33,22 @@ function tailwindScore(sector: string, industry: string): number {
   return SECTOR_TAILWIND[sector] ?? 10;
 }
 
-// ── Valuation (out of 5) ──────────────────────────────────────────────────────
+// ── Valuation (out of 5) — PE primary, PB secondary ──────────────────────────
 function valuationScore(pe: number | null, pb: number | null): number {
-  // PB as secondary signal when PE is missing or extreme
-  let score = 2;
   if (pe && pe > 0) {
-    score = pe <= 12 ? 5 : pe <= 22 ? 4 : pe <= 40 ? 3 : pe <= 65 ? 2 : 1;
-  } else if (pb && pb > 0) {
-    score = pb <= 1 ? 5 : pb <= 2.5 ? 4 : pb <= 5 ? 3 : 2;
+    if (pe <= 12) return 5;
+    if (pe <= 22) return 4;
+    if (pe <= 40) return 3;
+    if (pe <= 65) return 2;
+    return 1;
   }
-  return score;
+  if (pb && pb > 0) {
+    if (pb <= 1)   return 5;
+    if (pb <= 2.5) return 4;
+    if (pb <= 5)   return 3;
+    return 2;
+  }
+  return 2;
 }
 
 // ── Moat (out of 15) — market cap proxy ──────────────────────────────────────
@@ -50,15 +56,14 @@ function moatScore(marketCap: number | null): number {
   if (!marketCap) return 6;
   const cr = marketCap / 1e7;
   if (cr >= 100000) return 15;
-  if (cr >= 30000) return 13;
-  if (cr >= 8000) return 11;
-  if (cr >= 2000) return 9;
-  if (cr >= 500) return 7;
+  if (cr >= 30000)  return 13;
+  if (cr >= 8000)   return 11;
+  if (cr >= 2000)   return 9;
+  if (cr >= 500)    return 7;
   return 5;
 }
 
-// ── Financial quality (out of 15) ────────────────────────────────────────────
-// Priority: ROE → operating margin → PE proxy
+// ── Financial quality (out of 15) — ROE → op margin → PE proxy ───────────────
 function financialScore(
   pe: number | null,
   roe: number | null,
@@ -68,37 +73,34 @@ function financialScore(
     if (roe >= 25) return 15;
     if (roe >= 18) return 13;
     if (roe >= 12) return 11;
-    if (roe >= 7) return 8;
+    if (roe >= 7)  return 8;
     return 5;
   }
   if (operatingMargin != null) {
     if (operatingMargin >= 25) return 14;
     if (operatingMargin >= 15) return 12;
-    if (operatingMargin >= 8) return 10;
-    if (operatingMargin >= 3) return 7;
+    if (operatingMargin >= 8)  return 10;
+    if (operatingMargin >= 3)  return 7;
     return 4;
   }
-  // PE as last-resort proxy for profitability
   if (!pe || pe <= 0) return 5;
   if (pe <= 20) return 13;
   if (pe <= 35) return 11;
-  if (pe <= 55) return 9;
-  return 7;
+  return 8;
 }
 
-// ── Growth efficiency (out of 5) ─────────────────────────────────────────────
-// Priority: 3Y revenue CAGR → YoY revenue growth → 52W range position
+// ── Growth efficiency (out of 5) — revenue growth → 52W position ─────────────
 function growthScore(
   week52High: number, week52Low: number, cmp: number,
-  revenueCagr3y: number | null,
-  revenueGrowthYoy: number | null
+  revenueGrowth: number | null,
+  earningsGrowth: number | null
 ): number {
-  const growth = revenueCagr3y ?? revenueGrowthYoy;
-  if (growth != null) {
-    if (growth >= 30) return 5;
-    if (growth >= 20) return 4;
-    if (growth >= 10) return 3;
-    if (growth >= 0) return 2;
+  const g = revenueGrowth ?? earningsGrowth;
+  if (g != null) {
+    if (g >= 30) return 5;
+    if (g >= 20) return 4;
+    if (g >= 10) return 3;
+    if (g >= 0)  return 2;
     return 1;
   }
   if (!week52High || !week52Low || week52High <= week52Low || cmp <= 0) return 2;
@@ -111,64 +113,54 @@ function growthScore(
 
 // ── Revenue opportunity (out of 15) ──────────────────────────────────────────
 function revenueOpportunityScore(
-  sector: string, marketCap: number | null,
-  grossMargin: number | null
+  sector: string, marketCap: number | null, grossMargin: number | null
 ): number {
   if (!marketCap) return 8;
   const cr = marketCap / 1e7;
   const highGrowth = ['Technology', 'Industrials', 'Healthcare', 'Financial Services', 'Energy'];
   const isHigh = highGrowth.includes(sector);
-
   let base = 7;
   if (cr >= 5000 && cr <= 80000 && isHigh) base = 14;
   else if (cr >= 1000 && isHigh) base = 12;
   else if (isHigh) base = 10;
   else if (cr >= 5000) base = 9;
-
-  // High gross margin = pricing power = larger revenue opportunity
   if (grossMargin != null && grossMargin >= 40) base = Math.min(15, base + 1);
   return base;
 }
 
-// ── Management quality (out of 20) ───────────────────────────────────────────
-// ROE is a strong management efficiency signal; market cap as fallback
+// ── Management quality (out of 20) — ROE proxy, penalise high leverage ────────
 function managementScore(
   sector: string, marketCap: number | null,
-  roe: number | null,
-  debtEquity: number | null
+  roe: number | null, debtEquity: number | null
 ): number {
-  let base = 12;
-
+  let base: number;
   if (roe != null) {
     base = roe >= 25 ? 18 : roe >= 18 ? 16 : roe >= 12 ? 14 : roe >= 7 ? 11 : 8;
   } else if (marketCap) {
     const cr = marketCap / 1e7;
     base = cr >= 50000 ? 17 : cr >= 15000 ? 15 : cr >= 3000 ? 13 : 11;
     if (['Technology', 'Healthcare', 'Financial Services'].includes(sector)) base += 1;
+  } else {
+    base = 12;
   }
-
-  // Penalise high leverage (D/E > 1 is a yellow flag in capital-light businesses)
   if (debtEquity != null && debtEquity > 1.5) base = Math.max(8, base - 2);
   return Math.min(20, base);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function computeIscfScore(
-  quote: LiveQuote,
-  fundamentals?: StockFundamentals | null
-): number {
-  const f = fundamentals;
+// All inputs come directly from the LiveQuote — no separate fundamentals fetch needed.
+export function computeIscfScore(quote: LiveQuote): number {
   const t  = tailwindScore(quote.sector, quote.industry);
-  const v  = valuationScore(quote.pe, f?.pb ?? null);
+  const v  = valuationScore(quote.pe, quote.pb);
   const mo = moatScore(quote.marketCap);
-  const fi = financialScore(quote.pe, f?.roe ?? null, f?.operatingMargin ?? null);
+  const fi = financialScore(quote.pe, quote.roe, quote.operatingMargin);
   const g  = growthScore(
     quote.week52High, quote.week52Low, quote.cmp,
-    f?.revenueCagr3y ?? null, f?.revenueGrowthYoy ?? null
+    quote.revenueGrowth, quote.earningsGrowth
   );
-  const r  = revenueOpportunityScore(quote.sector, quote.marketCap, f?.grossMargin ?? null);
-  const m  = managementScore(quote.sector, quote.marketCap, f?.roe ?? null, f?.debtEquity ?? null);
+  const r  = revenueOpportunityScore(quote.sector, quote.marketCap, quote.grossMargin);
+  const m  = managementScore(quote.sector, quote.marketCap, quote.roe, quote.debtEquity);
   return Math.min(100, Math.max(1, t + v + mo + fi + g + r + m));
 }
 

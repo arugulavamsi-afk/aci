@@ -4,6 +4,7 @@ export interface NSESymbol {
   isin: string;
 }
 
+// Returned by the batch /api/nse/quotes endpoint — all fields from a single Yahoo Finance call
 export interface LiveQuote {
   symbol: string;
   name: string;
@@ -12,7 +13,21 @@ export interface LiveQuote {
   changePct: number;
   marketCap: number | null;
   marketCapLabel: string;
+  // Valuation
   pe: number | null;
+  forwardPe: number | null;
+  pb: number | null;
+  // Profitability & efficiency
+  roe: number | null;          // Return on Equity %
+  operatingMargin: number | null;
+  grossMargin: number | null;
+  profitMargin: number | null;
+  // Growth
+  revenueGrowth: number | null; // YoY %
+  earningsGrowth: number | null;
+  // Leverage
+  debtEquity: number | null;
+  // Price context
   sector: string;
   industry: string;
   week52High: number;
@@ -20,16 +35,16 @@ export interface LiveQuote {
   volume: number;
 }
 
-// Fetched per-stock from Yahoo Finance quoteSummary
+// Used only by the individual company detail page (/api/nse/stock/[symbol])
 export interface StockFundamentals {
-  roe: number | null;            // Return on Equity %
-  revenueGrowthYoy: number | null; // Revenue growth YoY %
-  revenueCagr3y: number | null;  // 3-year revenue CAGR % (computed from income statements)
-  operatingMargin: number | null;// Operating margin %
-  grossMargin: number | null;    // Gross margin %
-  debtEquity: number | null;     // D/E ratio
-  pb: number | null;             // Price-to-book
-  evEbitda: number | null;       // EV/EBITDA
+  roe: number | null;
+  revenueGrowthYoy: number | null;
+  revenueCagr3y: number | null;
+  operatingMargin: number | null;
+  grossMargin: number | null;
+  debtEquity: number | null;
+  pb: number | null;
+  evEbitda: number | null;
   description: string;
   city: string;
 }
