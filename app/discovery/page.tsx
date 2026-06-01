@@ -62,9 +62,11 @@ const curatedMap = new Map(
 
 function liveQuoteToDisplay(q: LiveQuote): DisplayStock {
   const curated = curatedMap.get(q.symbol);
-  const algoScore = computeIscfScore(q);
-  const compoundScore = curated?.compoundScore ?? algoScore;
-  const conviction = curated?.conviction ?? scoreToConviction(algoScore);
+  const extras = curated
+    ? { roce: curated.roce, promoterHolding: curated.promoterHolding, revenueCagr3y: curated.revenueCagr3y }
+    : undefined;
+  const compoundScore = computeIscfScore(q, extras);
+  const conviction = scoreToConviction(compoundScore);
   return {
     symbol: q.symbol,
     name: q.name || curated?.name || q.symbol,
