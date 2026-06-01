@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import ScoreGauge from '@/components/ui/ScoreGauge';
-import type { LiveQuote } from '@/lib/nse/types';
+import type { LiveQuote, StockFundamentals } from '@/lib/nse/types';
 import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ function quoteToDisplay(q: LiveQuote): DisplayStock {
 
 export default function DiscoveryPage() {
   const [allStocks, setAllStocks]       = useState<DisplayStock[]>([]);
+  const [fundamentals, setFundamentals] = useState<Map<string, StockFundamentals>>(new Map());
   const [loadingSymbols, setLoadingSymbols] = useState(true);
   const [loadedBatches, setLoadedBatches]   = useState(0);
   const [totalBatches, setTotalBatches]     = useState(0);
@@ -69,7 +70,9 @@ export default function DiscoveryPage() {
   const [view, setView]           = useState<'table' | 'grid'>('table');
   const [page, setPage]           = useState(1);
 
-  const abortRef = useRef<AbortController | null>(null);
+  const abortRef     = useRef<AbortController | null>(null);
+  const fundAbortRef = useRef<AbortController | null>(null);
+  const fetchedRef   = useRef<Set<string>>(new Set());
 
   const loadData = useCallback(async () => {
     abortRef.current?.abort();
@@ -79,6 +82,8 @@ export default function DiscoveryPage() {
     setLoadingSymbols(true);
     setError(null);
     setAllStocks([]);
+    setFundamentals(new Map());
+    fetchedRef.current.clear();
     setLoadedBatches(0);
     setTotalBatches(0);
     setPage(1);
@@ -125,6 +130,33 @@ export default function DiscoveryPage() {
     loadData();
     return () => abortRef.current?.abort();
   }, [loadData]);
+
+  // Silently fetch fundamentals (ROE, margins) for visible page — doesn't block scores
+  const fetchFundamentals = useCallback((symbols: string[]) => {
+    const missing = symbols.filter(s => !fetchedRef.current.has(s));
+    if (missing.length === 0) return;
+    missing.forEach(s => fetchedRef.current.add(s));
+
+    fundAbortRef.current?.abort();
+    fundAbortRef.current = new AbortController();
+    const { signal } = fundAbortRef.current;
+
+    Promise.allSettled(
+      missing.map(async sym => {
+        try {
+          const r = await fetch(`/api/nse/stock/${sym}`, { signal });
+          if (!r.ok) return;
+          const { fundamentals: fd } = await r.json() as { fundamentals: StockFundamentals };
+          setFundamentals(prev => new Map(prev).set(sym, fd));
+        } catch { /* silent */ }
+      })
+    );
+  }, []);
+
+  useEffect(() => {
+    if (pageStocks.length > 0) fetchFundamentals(pageStocks.map(s => s.quote.symbol));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, allStocks.length]);
 
   // ── Filtering & sorting ────────────────────────────────────────────────────
 
@@ -295,6 +327,7 @@ export default function DiscoveryPage() {
               <tbody>
                 {pageStocks.map((stock, i) => {
                   const q          = stock.quote;
+                  const fd         = fundamentals.get(q.symbol);
                   const score      = computeIscfScore(q);
                   const conv       = scoreToConviction(score);
                   const scoreColor = getScoreColor(score);
@@ -303,6 +336,11 @@ export default function DiscoveryPage() {
                   const w52Pct     = q.week52High > q.week52Low
                     ? Math.round(((q.cmp - q.week52Low) / (q.week52High - q.week52Low)) * 100)
                     : 0;
+                  const isFetching = !fd && fetchedRef.current.has(q.symbol);
+                  // Prefer real fundamentals; fall back to batch data
+                  const roe        = fd?.roe ?? null;
+                  const revGrowth  = fd?.revenueCagr3y ?? fd?.revenueGrowthYoy ?? null;
+                  const opMargin   = fd?.operatingMargin ?? null;
 
                   return (
                     <tr key={q.symbol} className="cursor-pointer"
@@ -357,25 +395,29 @@ export default function DiscoveryPage() {
 
                       {/* ROE */}
                       <td className="text-right">
-                        {q.roe != null
-                          ? <span className="font-bold metric-number" style={{ color: q.roe >= 18 ? '#10b981' : q.roe >= 10 ? '#f59e0b' : '#ef4444', fontSize: '13px' }}>{q.roe.toFixed(1)}%</span>
-                          : <span style={{ color: 'rgba(232,236,244,0.2)' }}>—</span>}
+                        {isFetching
+                          ? <Loader2 size={10} className="animate-spin ml-auto" style={{ color: 'rgba(232,236,244,0.2)' }} />
+                          : roe != null
+                            ? <span className="font-bold metric-number" style={{ color: roe >= 18 ? '#10b981' : roe >= 10 ? '#f59e0b' : '#ef4444', fontSize: '13px' }}>{roe.toFixed(1)}%</span>
+                            : <span style={{ color: 'rgba(232,236,244,0.2)' }}>—</span>}
                       </td>
 
                       {/* Rev Growth */}
                       <td className="text-right">
-                        {(q.revenueGrowth ?? q.earningsGrowth) != null
-                          ? <span className="font-bold metric-number" style={{ color: (q.revenueGrowth ?? q.earningsGrowth)! > 15 ? '#10b981' : '#f59e0b', fontSize: '13px' }}>
-                              {(q.revenueGrowth ?? q.earningsGrowth)!.toFixed(1)}%
-                            </span>
-                          : <span style={{ color: 'rgba(232,236,244,0.2)' }}>—</span>}
+                        {isFetching
+                          ? <Loader2 size={10} className="animate-spin ml-auto" style={{ color: 'rgba(232,236,244,0.2)' }} />
+                          : revGrowth != null
+                            ? <span className="font-bold metric-number" style={{ color: revGrowth > 15 ? '#10b981' : '#f59e0b', fontSize: '13px' }}>{revGrowth.toFixed(1)}%</span>
+                            : <span style={{ color: 'rgba(232,236,244,0.2)' }}>—</span>}
                       </td>
 
                       {/* Op Margin */}
                       <td className="text-right">
-                        {q.operatingMargin != null
-                          ? <span className="font-bold metric-number" style={{ color: q.operatingMargin >= 15 ? '#10b981' : q.operatingMargin >= 8 ? '#f59e0b' : '#ef4444', fontSize: '13px' }}>{q.operatingMargin.toFixed(1)}%</span>
-                          : <span style={{ color: 'rgba(232,236,244,0.2)' }}>—</span>}
+                        {isFetching
+                          ? <Loader2 size={10} className="animate-spin ml-auto" style={{ color: 'rgba(232,236,244,0.2)' }} />
+                          : opMargin != null
+                            ? <span className="font-bold metric-number" style={{ color: opMargin >= 15 ? '#10b981' : opMargin >= 8 ? '#f59e0b' : '#ef4444', fontSize: '13px' }}>{opMargin.toFixed(1)}%</span>
+                            : <span style={{ color: 'rgba(232,236,244,0.2)' }}>—</span>}
                       </td>
 
                       {/* 52W range bar */}
@@ -427,11 +469,14 @@ export default function DiscoveryPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {pageStocks.map(stock => {
               const q          = stock.quote;
+              const fd         = fundamentals.get(q.symbol);
               const score      = computeIscfScore(q);
               const conv       = scoreToConviction(score);
               const scoreColor = getScoreColor(score);
               const convColor  = conv === 'High' ? '#10b981' : conv === 'Medium' ? '#f59e0b' : '#ef4444';
               const isUp       = q.changePct >= 0;
+              const gRoe       = fd?.roe ?? null;
+              const gOpMargin  = fd?.operatingMargin ?? null;
 
               const card = (
                 <div key={q.symbol} className="glass-card p-5 hover-glow-gold transition-all duration-300">
@@ -454,9 +499,9 @@ export default function DiscoveryPage() {
 
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     {[
-                      { label: 'CMP',      value: q.cmp > 0 ? `₹${q.cmp.toFixed(0)}` : '—', color: isUp ? '#10b981' : '#ef4444' },
-                      { label: 'ROE',      value: q.roe != null ? `${q.roe.toFixed(1)}%` : '—', color: (q.roe ?? 0) >= 15 ? '#10b981' : '#f59e0b' },
-                      { label: 'Op Margin',value: q.operatingMargin != null ? `${q.operatingMargin.toFixed(1)}%` : '—', color: (q.operatingMargin ?? 0) >= 12 ? '#10b981' : '#f59e0b' },
+                      { label: 'CMP',       value: q.cmp > 0 ? `₹${q.cmp.toFixed(0)}` : '—', color: isUp ? '#10b981' : '#ef4444' },
+                      { label: 'ROE',       value: gRoe != null ? `${gRoe.toFixed(1)}%` : '—', color: (gRoe ?? 0) >= 15 ? '#10b981' : '#f59e0b' },
+                      { label: 'Op Margin', value: gOpMargin != null ? `${gOpMargin.toFixed(1)}%` : '—', color: (gOpMargin ?? 0) >= 12 ? '#10b981' : '#f59e0b' },
                     ].map(m => (
                       <div key={m.label} className="text-center p-2 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)' }}>
                         <div className="font-bold text-sm metric-number" style={{ color: m.color }}>{m.value}</div>
