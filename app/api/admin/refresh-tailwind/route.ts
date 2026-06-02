@@ -1,5 +1,7 @@
+// Import from the internal lib path to bypass pdf-parse's self-test at module load
+// (the self-test reads test/data/05-versions-space.pdf which doesn't exist in the project)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
+const pdfParse = require('pdf-parse/lib/pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.3-70b-versatile';
