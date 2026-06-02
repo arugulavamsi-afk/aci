@@ -90,6 +90,7 @@ export default function DiscoveryPage() {
   const [search, setSearch]       = useState('');
   const [sector, setSector]       = useState('All');
   const [conviction, setConviction] = useState('All');
+  const [exchange, setExchange]   = useState<'All' | 'NSE' | 'BSE'>('All');
   const [minScore, setMinScore]   = useState(0);
   const [sortBy, setSortBy]       = useState<'score' | 'marketCap' | 'changePct' | 'pe'>('marketCap');
   const [view, setView]           = useState<'table' | 'grid'>('table');
@@ -213,6 +214,7 @@ export default function DiscoveryPage() {
         if (!s.name.toLowerCase().includes(lq) && !q.symbol.toLowerCase().includes(lq)) return false;
       }
       if (sector !== 'All' && q.sector !== sector) return false;
+      if (exchange !== 'All' && (q.exchange ?? 'NSE') !== exchange) return false;
       const score = computeIscfScore(q);
       if (minScore > 0 && score < minScore) return false;
       if (conviction !== 'All' && scoreToConviction(score) !== conviction) return false;
@@ -308,7 +310,7 @@ export default function DiscoveryPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="relative lg:col-span-2">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(232,236,244,0.3)' }} />
             <input type="text" placeholder="Search company or ticker…" value={search}
@@ -318,6 +320,12 @@ export default function DiscoveryPage() {
           <select value={sector} onChange={e => { setSector(e.target.value); setPage(1); }}
             className="premium-input text-xs py-2 cursor-pointer" style={{ background: 'rgba(255,255,255,0.04)' }}>
             {SECTORS.map(s => <option key={s} value={s} style={{ background: '#0a0e1a' }}>{s === 'All' ? 'All Sectors' : s}</option>)}
+          </select>
+          <select value={exchange} onChange={e => { setExchange(e.target.value as typeof exchange); setPage(1); }}
+            className="premium-input text-xs py-2 cursor-pointer" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <option value="All" style={{ background: '#0a0e1a' }}>NSE + BSE</option>
+            <option value="NSE" style={{ background: '#0a0e1a' }}>NSE only</option>
+            <option value="BSE" style={{ background: '#0a0e1a' }}>BSE only</option>
           </select>
           <select value={conviction} onChange={e => { setConviction(e.target.value); setPage(1); }}
             className="premium-input text-xs py-2 cursor-pointer" style={{ background: 'rgba(255,255,255,0.04)' }}>
@@ -416,7 +424,12 @@ export default function DiscoveryPage() {
                               <span className="font-semibold" style={{ color: '#e8ecf4', fontSize: '13px' }}>{stock.name}</span>
                               {stock.watchlisted && <Star size={10} fill="#d4a853" color="#d4a853" />}
                             </div>
-                            <div style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10.5px' }}>
+                            <div className="flex items-center gap-1.5" style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10.5px' }}>
+                              <span className="font-semibold text-xs px-1 rounded" style={{
+                                background: q.exchange === 'BSE' ? 'rgba(212,168,83,0.12)' : 'rgba(12,123,147,0.12)',
+                                color: q.exchange === 'BSE' ? '#d4a853' : '#0c7b93',
+                                fontSize: '9px', letterSpacing: '0.05em',
+                              }}>{q.exchange ?? 'NSE'}</span>
                               {q.symbol}{q.industry ? ` · ${q.industry}` : ''}
                             </div>
                           </div>
@@ -548,7 +561,14 @@ export default function DiscoveryPage() {
                           {stock.name}
                           {stock.watchlisted && <Star size={11} fill="#d4a853" color="#d4a853" />}
                         </div>
-                        <div style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10.5px' }}>{q.symbol}</div>
+                        <div className="flex items-center gap-1.5" style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10.5px' }}>
+                          <span className="font-semibold px-1 rounded" style={{
+                            background: q.exchange === 'BSE' ? 'rgba(212,168,83,0.12)' : 'rgba(12,123,147,0.12)',
+                            color: q.exchange === 'BSE' ? '#d4a853' : '#0c7b93',
+                            fontSize: '9px',
+                          }}>{q.exchange ?? 'NSE'}</span>
+                          {q.symbol}
+                        </div>
                       </div>
                     </div>
                     <ScoreGauge score={score} size="sm" showLabel={false} />

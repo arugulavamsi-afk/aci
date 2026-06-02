@@ -92,6 +92,7 @@ export async function GET(req: NextRequest) {
     const quotes: LiveQuote[] = raw.map(q => ({
       symbol:          (q.symbol as string)?.replace(/\.(NS|BO)$/, '') ?? '',
       name:            (q.shortName || q.longName || '') as string,
+      exchange:        ((q.symbol as string)?.endsWith('.BO') ? 'BSE' : 'NSE') as 'NSE' | 'BSE',
       cmp:             num(q.regularMarketPrice) ?? 0,
       change:          num(q.regularMarketChange) ?? 0,
       changePct:       num(q.regularMarketChangePercent) ?? 0,

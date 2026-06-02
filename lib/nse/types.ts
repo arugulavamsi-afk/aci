@@ -8,6 +8,7 @@ export interface NSESymbol {
 export interface LiveQuote {
   symbol: string;
   name: string;
+  exchange?: 'NSE' | 'BSE';
   cmp: number;
   change: number;
   changePct: number;

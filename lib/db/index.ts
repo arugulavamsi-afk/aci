@@ -97,6 +97,7 @@ export function rowToLiveQuote(row: StockRow): LiveQuote {
   return {
     symbol:            row.symbol,
     name:              row.name ?? row.symbol,
+    exchange:          (row.exchange as 'NSE' | 'BSE') ?? 'NSE',
     cmp:               n(row.cmp) ?? 0,
     change:            0,
     changePct:         n(row.change_pct) ?? 0,
