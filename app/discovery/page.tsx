@@ -114,6 +114,18 @@ export default function DiscoveryPage() {
     setPage(1);
 
     try {
+      // ── Fast path: read from Postgres cache (single query, instant) ──────────
+      const dbRes = await fetch('/api/stocks', { signal });
+      if (dbRes.ok) {
+        const { quotes } = await dbRes.json() as { quotes: LiveQuote[] };
+        if (quotes.length > 0) {
+          setAllStocks(quotes.map(quoteToDisplay));
+          setLoadingSymbols(false);
+          return;
+        }
+      }
+
+      // ── Fallback: live Yahoo Finance batching (DB empty or not configured) ───
       // Step 1: fetch combined NSE + BSE-only symbol list; seed all as stubs immediately
       const symRes = await fetch('/api/symbols', { signal });
       if (!symRes.ok) throw new Error(`Symbol fetch failed: ${symRes.status}`);
@@ -382,10 +394,10 @@ export default function DiscoveryPage() {
                     ? Math.round(((q.cmp - q.week52Low) / (q.week52High - q.week52Low)) * 100)
                     : 0;
                   const isFetching = !fd && fetchedRef.current.has(q.symbol);
-                  // Prefer real fundamentals; fall back to batch data
-                  const roe        = fd?.roe ?? null;
-                  const revGrowth  = fd?.revenueCagr3y ?? fd?.revenueGrowthYoy ?? null;
-                  const opMargin   = fd?.operatingMargin ?? null;
+                  // Prefer per-stock fundamentals (3Y CAGR etc.); fall back to DB/batch data
+                  const roe        = fd?.roe ?? q.roe;
+                  const revGrowth  = fd?.revenueCagr3y ?? fd?.revenueGrowthYoy ?? q.revenueGrowth;
+                  const opMargin   = fd?.operatingMargin ?? q.operatingMargin;
 
                   return (
                     <tr key={q.symbol} className="cursor-pointer"
@@ -520,8 +532,8 @@ export default function DiscoveryPage() {
               const scoreColor = getScoreColor(score);
               const convColor  = conv === 'High' ? '#10b981' : conv === 'Medium' ? '#f59e0b' : '#ef4444';
               const isUp       = q.changePct >= 0;
-              const gRoe       = fd?.roe ?? null;
-              const gOpMargin  = fd?.operatingMargin ?? null;
+              const gRoe       = fd?.roe ?? q.roe;
+              const gOpMargin  = fd?.operatingMargin ?? q.operatingMargin;
 
               const card = (
                 <div key={q.symbol} className="glass-card p-5 hover-glow-gold transition-all duration-300">
