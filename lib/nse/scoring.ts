@@ -1,5 +1,6 @@
 import type { LiveQuote } from './types';
 import { getSectorConfig, SECTOR_TO_CONFIG } from './tailwindConfig';
+import { getGovBoost } from './govIntelligence';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTOR 1 — STRUCTURAL TAILWIND  (max 25 pts)
@@ -13,25 +14,46 @@ import { getSectorConfig, SECTOR_TO_CONFIG } from './tailwindConfig';
 
 function materialisationBonus(
   revenueGrowth: number | null,
-  earningsGrowth: number | null
+  earningsGrowth: number | null,
+  operatingMargin: number | null,
+  grossMargin: number | null,
 ): number {
+  // Growth signal (0–3): lagging confirmation that tailwind is flowing to revenue
   const g = revenueGrowth ?? earningsGrowth;
-  if (g == null) return 1; // unknown — neutral
-  if (g >= 25)  return 5;  // tailwind clearly flowing through to P&L
-  if (g >= 15)  return 4;
-  if (g >= 8)   return 3;
-  if (g >= 0)   return 2;
-  return 0;                // negative growth = tailwind not materialising
+  let growthPts: number;
+  if (g == null)    growthPts = 1; // unknown — neutral
+  else if (g >= 25) growthPts = 3;
+  else if (g >= 8)  growthPts = 2;
+  else if (g >= 0)  growthPts = 1;
+  else              growthPts = 0; // negative = tailwind not materialising
+
+  // Margin signal (0–2): earnings outpacing revenue = margins expanding = PLI monetisation
+  // More direct than revenue growth alone — PLI incentives flow straight to the bottom line
+  let marginPts = 0;
+  if (revenueGrowth != null && earningsGrowth != null) {
+    const spread = earningsGrowth - revenueGrowth;
+    if (spread >= 8)      marginPts = 2; // clear margin expansion — PLI flowing through
+    else if (spread >= 3) marginPts = 1; // mild expansion
+  } else if (operatingMargin != null && operatingMargin >= 15) {
+    marginPts = 1; // structurally healthy margins in a tailwind sector
+  } else if (grossMargin != null && grossMargin >= 35) {
+    marginPts = 1; // pricing power — capturing tailwind at the gross level
+  }
+
+  return Math.min(5, growthPts + marginPts);
 }
 
 function tailwindScore(
   sector: string, industry: string,
-  revenueGrowth: number | null, earningsGrowth: number | null
+  revenueGrowth: number | null, earningsGrowth: number | null,
+  operatingMargin: number | null, grossMargin: number | null,
 ): number {
   const cfg = getSectorConfig(sector, industry);
   const policyWeight = cfg?.policyWeight
-    ?? (SECTOR_TO_CONFIG[sector] ? 12 : 9); // use sector fallback or unknown
-  return Math.min(25, policyWeight + materialisationBonus(revenueGrowth, earningsGrowth));
+    ?? (SECTOR_TO_CONFIG[sector] ? 12 : 9);
+  // govBoost (0–3): ministry-level signals beyond budget — PLI activeness, capex plans, import substitution
+  const govBoost = getGovBoost(sector, industry);
+  return Math.min(25, policyWeight + govBoost + materialisationBonus(revenueGrowth, earningsGrowth, operatingMargin, grossMargin));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,59 +65,90 @@ function tailwindScore(
 
 function managementScore(
   sector: string, marketCap: number | null,
-  roe: number | null, debtEquity: number | null
+  roe: number | null, debtEquity: number | null,
+  insiderHolding: number | null,
+  revenueGrowth: number | null, earningsGrowth: number | null,
 ): number {
-  let base: number;
-
+  // ── Sub 1: Capital Efficiency (0–10 pts) ──────────────────────────────────
+  // ROE adjusted for leverage — high ROE via debt is engineering, not skill
+  let efficiencyPts: number;
   if (roe != null) {
-    // Distinguish organic ROE (low D/E) from leverage-inflated ROE
     const leverageFactor = (debtEquity ?? 0) > 1 ? 0.85 : 1;
     const adjustedRoe = roe * leverageFactor;
-    base = adjustedRoe >= 25 ? 19
-         : adjustedRoe >= 20 ? 17
-         : adjustedRoe >= 15 ? 15
-         : adjustedRoe >= 10 ? 12
-         : adjustedRoe >= 5  ? 9
-         : 6;
+    efficiencyPts = adjustedRoe >= 25 ? 10
+                  : adjustedRoe >= 20 ? 8
+                  : adjustedRoe >= 15 ? 7
+                  : adjustedRoe >= 10 ? 5
+                  : adjustedRoe >= 5  ? 3
+                  : 2;
   } else if (marketCap) {
     const cr = marketCap / 1e7;
-    base = cr >= 50000 ? 16 : cr >= 15000 ? 14 : cr >= 3000 ? 12 : 10;
-    if (['Technology', 'Healthcare', 'Financial Services'].includes(sector)) base += 1;
+    efficiencyPts = cr >= 50000 ? 7 : cr >= 15000 ? 6 : cr >= 3000 ? 5 : 4;
+    if (['Technology', 'Healthcare', 'Financial Services'].includes(sector))
+      efficiencyPts = Math.min(8, efficiencyPts + 1);
   } else {
-    base = 10;
+    efficiencyPts = 4;
   }
 
-  // Hard penalty for extreme leverage — sign of poor capital discipline
-  if (debtEquity != null && debtEquity > 2) base = Math.max(7, base - 3);
+  // ── Sub 2: Promoter Alignment (0–6 pts) ───────────────────────────────────
+  // Insider/promoter holding — skin in the game aligns management with shareholders
+  let alignmentPts: number;
+  if (insiderHolding == null)       alignmentPts = 3; // unknown = neutral
+  else if (insiderHolding >= 50)    alignmentPts = 6; // founder/promoter controlled
+  else if (insiderHolding >= 35)    alignmentPts = 5; // good alignment
+  else if (insiderHolding >= 25)    alignmentPts = 3; // moderate
+  else                              alignmentPts = 1; // low — weak accountability
 
-  return Math.min(20, base);
+  // ── Sub 3: Capital Discipline (0–4 pts) ───────────────────────────────────
+  // Proxy for reinvestment quality and avoiding diworsification
+  // Debt discipline (0–2): conservative capital structure = organic growth preference
+  const debtPts = debtEquity == null ? 1
+               : debtEquity < 0.5   ? 2
+               : debtEquity < 1.5   ? 1
+               : 0;
+
+  // Earnings efficiency (0–2): earnings outpacing revenue = no value destruction via bad acquisitions
+  let earnPts = 1; // neutral when data missing
+  if (revenueGrowth != null && earningsGrowth != null) {
+    earnPts = earningsGrowth > revenueGrowth + 2 ? 2
+            : (earningsGrowth >= 0 && revenueGrowth >= 0) ? 1
+            : 0;
+  } else if ((revenueGrowth ?? earningsGrowth ?? 0) < 0) {
+    earnPts = 0;
+  }
+
+  const disciplinePts = debtPts + earnPts;
+
+  // ── Hard penalty for extreme leverage ─────────────────────────────────────
+  const base = Math.min(20, efficiencyPts + alignmentPts + disciplinePts);
+  if (debtEquity != null && debtEquity > 2) return Math.max(7, base - 3);
+  return base;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTOR 3 — FINANCIAL QUALITY  (max 15 pts)
 //
 // Multi-parameter composite — each sub-dimension gets its own allocation:
-//   A. Return on Capital (0–5): ROE quality
+//   A. ROCE / ROA (0–5): leverage-neutral capital efficiency (ROA as ROCE proxy)
 //   B. Margin Profile (0–4): Operating + gross margin combo
 //   C. Balance Sheet (0–3): Debt discipline
-//   D. Growth Quality (0–3): Revenue × earnings momentum
+//   D. Cash Conversion Quality (0–3): Operating cash flow vs PAT
 // ─────────────────────────────────────────────────────────────────────────────
 
 function financialScore(
   pe: number | null,
-  roe: number | null,
+  roce: number | null,
   operatingMargin: number | null,
   grossMargin: number | null,
-  revenueGrowth: number | null,
-  earningsGrowth: number | null,
-  debtEquity: number | null
+  debtEquity: number | null,
+  operatingCashFlow: number | null,
+  marketCap: number | null,
 ): number {
-  // A. Return on Capital (0–5)
+  // A. ROCE — EBIT / (Equity + LT Debt); leverage-neutral, superior to ROE for capital efficiency
   let returnPts = 2; // default when no data
-  if (roe != null) {
-    returnPts = roe >= 25 ? 5 : roe >= 18 ? 4 : roe >= 12 ? 3 : roe >= 7 ? 2 : 1;
+  if (roce != null) {
+    returnPts = roce >= 25 ? 5 : roce >= 15 ? 4 : roce >= 10 ? 3 : roce >= 6 ? 2 : 1;
   } else if (pe && pe > 0) {
-    // PE as rough profitability proxy when ROE missing
     returnPts = pe <= 20 ? 3 : pe <= 40 ? 2 : 1;
   }
 
@@ -116,24 +169,24 @@ function financialScore(
   // C. Balance Sheet Health (0–3)
   let debtPts = 1; // unknown = neutral
   if (debtEquity != null) {
-    debtPts = debtEquity < 0.25 ? 3     // near debt-free = strong
-            : debtEquity < 0.75 ? 2     // conservative
-            : debtEquity < 1.5  ? 1     // manageable
-            : 0;                        // leveraged
+    debtPts = debtEquity < 0.25 ? 3
+            : debtEquity < 0.75 ? 2
+            : debtEquity < 1.5  ? 1
+            : 0;
   }
 
-  // D. Growth Quality (0–3): both revenue AND earnings growing = high quality
-  let growthPts = 1;
-  const revG = revenueGrowth ?? 0;
-  const epsG = earningsGrowth ?? 0;
-  if (revenueGrowth != null || earningsGrowth != null) {
-    if (revG >= 20 && epsG >= 15)      growthPts = 3; // top-line and bottom-line both strong
-    else if (revG >= 15 || epsG >= 20) growthPts = 2;
-    else if (revG >= 0 && epsG >= 0)   growthPts = 1;
-    else                                growthPts = 0; // deteriorating
+  // D. Cash Conversion Quality (0–3): OCF > PAT = earnings are cash-backed, not accrual-inflated
+  // OCF/PAT ≈ (operatingCashFlow × trailingPE) / marketCap — ratio > 1.0 means cash exceeds earnings
+  let cashPts = 1; // neutral when data unavailable
+  if (operatingCashFlow != null && marketCap != null && marketCap > 0 && pe != null && pe > 0) {
+    const ocfToPat = (operatingCashFlow * pe) / marketCap;
+    cashPts = ocfToPat >= 1.2 ? 3  // excellent — OCF well above PAT, low accruals
+            : ocfToPat >= 1.0 ? 2  // good — cash-backed earnings
+            : ocfToPat >= 0.7 ? 1  // acceptable
+            : 0;                    // earnings quality concern
   }
 
-  return Math.min(15, returnPts + marginPts + debtPts + growthPts);
+  return Math.min(15, returnPts + marginPts + debtPts + cashPts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,12 +194,11 @@ function financialScore(
 //
 // Three distinct moat dimensions:
 //   A. Pricing Power (0–5): Gross margin → can the company charge a premium?
-//   B. Capital Efficiency Durability (0–5): High ROE without heavy leverage
-//      = a real moat, not financial engineering
-//   C. Structural / Regulatory Position (0–5): Industry barriers + scale
+//   B. Competitive Durability (0–5): ROCE sustainability + customer switching costs
+//   C. Structural / Regulatory Position (0–5): Tiered by scale within barrier type
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Industries with structural/regulatory moats — barriers to entry are non-financial
+// Non-financial entry barriers — clearances, licences, long procurement cycles
 const REGULATORY_MOAT_INDUSTRIES = [
   /defense|defence|aerospace|naval/i,       // security clearances, 5+ year qualification
   /pharma|drug\s*mfg|api\s*mfg/i,           // drug approvals, patent protection
@@ -154,16 +206,25 @@ const REGULATORY_MOAT_INDUSTRIES = [
   /railway|rail\s*vikas/i,                   // government mandate, land acquisition
   /shipbuild|shipyard/i,                     // strategic national assets, NCCD
   /water\s*(utility|treat|supply)/i,         // municipal contracts, long tenure
-  /telecom/i,                                // spectrum licenses, high capex
-  /insurance/i,                              // IRDAI regulation, trust-based
+  /telecom/i,                                // spectrum licenses, high capex barrier
+  /insurance/i,                              // IRDAI regulation, trust inertia
+];
+
+// Industries where switching supplier/vendor is costly or slow for the customer
+const SWITCHING_COST_INDUSTRIES = [
+  /software|it\s*serv|saas|erp|crm/i,       // re-implementation takes 6–18 months
+  /specialty\s*chem|agrochemi/i,             // customer re-qualification 12–24 months
+  /banking|nbfc|microfinance/i,              // account/loan migration friction
+  /exchange|depository|clearing/i,           // network lock-in (NSE/BSE/CDSL/NSDL)
+  /hospital|diagnostic|lab.*serv/i,          // patient-doctor-record lock-in
+  /pharma.*api|api.*mfg|cram/i,              // FDA/DCGI re-approval for supplier change
 ];
 
 function moatScore(
   sector: string, industry: string,
   marketCap: number | null,
   grossMargin: number | null,
-  roe: number | null,
-  debtEquity: number | null
+  roce: number | null,
 ): number {
   // A. Pricing Power (0–5): gross margin reveals whether customers pay a premium
   let pricingPts = 2; // default when no data
@@ -175,104 +236,166 @@ function moatScore(
                : 1;                      // commodity / pass-through
   }
 
-  // B. Capital Efficiency Durability (0–5)
-  // High ROE + low leverage = genuine competitive advantage, not financial tricks
-  let efficiencyPts = 2;
-  if (roe != null) {
-    const isLeveraged = (debtEquity ?? 0) > 1.0;
-    if (roe >= 22 && !isLeveraged)      efficiencyPts = 5;
-    else if (roe >= 18)                 efficiencyPts = 4;
-    else if (roe >= 12)                 efficiencyPts = 3;
-    else if (roe >= 7)                  efficiencyPts = 2;
-    else                                efficiencyPts = 1;
-  } else if (marketCap) {
-    const cr = marketCap / 1e7;
-    efficiencyPts = cr >= 50000 ? 4 : cr >= 10000 ? 3 : cr >= 2000 ? 2 : 1;
+  // B. Competitive Durability (0–5)
+  // ROCE is leverage-neutral — sustained high ROCE = moat is real, not financial engineering
+  // Switching costs compound durability: locked-in customers protect ROCE over time
+  const hasSwitchCost = SWITCHING_COST_INDUSTRIES.some(re => re.test(industry));
+  let durabilityPts = 2;
+  if (roce != null) {
+    if      (roce >= 22 && hasSwitchCost) durabilityPts = 5; // durable + locked-in customers
+    else if (roce >= 22)                  durabilityPts = 4; // strong ROCE, open market
+    else if (roce >= 14 && hasSwitchCost) durabilityPts = 4; // good ROCE + stickiness
+    else if (roce >= 14)                  durabilityPts = 3;
+    else if (roce >= 8)                   durabilityPts = 2;
+    else if (hasSwitchCost)               durabilityPts = 2; // stickiness despite low ROCE
+    else                                  durabilityPts = 1;
+  } else {
+    durabilityPts = hasSwitchCost ? 3 : 2; // ROCE unavailable — switching cost as sole signal
   }
 
   // C. Structural / Regulatory Position (0–5)
-  let structuralPts = 2; // default competitive market
+  // Tiered by market cap — larger = more clearances, contracts, and embedded relationships
+  const cr = (marketCap ?? 0) / 1e7;
+  let structuralPts: number;
   const hasRegMoat = REGULATORY_MOAT_INDUSTRIES.some(re => re.test(industry));
   if (hasRegMoat) {
-    structuralPts = 5; // high barriers — clearances, licences, national importance
+    structuralPts = cr >= 20000 ? 5   // large regulated platform (HAL, BEL, NTPC)
+                 : cr >= 5000  ? 4   // established player, multiple clearances
+                 : cr >= 1000  ? 3   // niche player, limited clearances/contracts
+                 : 2;                // new/small entrant in regulated space
   } else {
-    const cr = (marketCap ?? 0) / 1e7;
     const techSectors = ['Technology', 'Healthcare'];
-    if (techSectors.includes(sector) && cr >= 5000)  structuralPts = 4; // IP + scale
-    else if (cr >= 30000)                             structuralPts = 4; // scale moat
-    else if (cr >= 8000)                              structuralPts = 3;
-    else                                              structuralPts = 2;
+    if (techSectors.includes(sector) && cr >= 5000) structuralPts = 4; // IP + proven scale
+    else if (cr >= 30000)                            structuralPts = 4; // scale moat
+    else if (cr >= 8000)                             structuralPts = 3;
+    else if (cr >= 2000)                             structuralPts = 2;
+    else                                             structuralPts = 1;
   }
 
-  return Math.min(15, pricingPts + efficiencyPts + structuralPts);
+  return Math.min(15, pricingPts + durabilityPts + structuralPts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTOR 5 — REVENUE OPPORTUNITY  (max 15 pts)
+//
+// Three independent dimensions:
+//   A. Growth Capture (0–6):  actual revenue growth proves the opportunity is monetising
+//   B. Opportunity Quality (0–5): sector's structural backing via policyWeight (Budget allocations)
+//   C. Runway Remaining (0–4): how much room left before scale constraints bite
 // ─────────────────────────────────────────────────────────────────────────────
 
 function revenueOpportunityScore(
-  sector: string, marketCap: number | null, grossMargin: number | null
+  sector: string, industry: string,
+  marketCap: number | null,
+  revenueGrowth: number | null, earningsGrowth: number | null,
 ): number {
-  if (!marketCap) return 7;
-  const cr = marketCap / 1e7;
-  const highGrowth = ['Technology', 'Industrials', 'Healthcare', 'Financial Services', 'Energy'];
-  const isHigh = highGrowth.includes(sector);
+  // A. Growth Capture (0–6): positive and accelerating revenue = opportunity actively monetising
+  const g = revenueGrowth ?? earningsGrowth;
+  let growthPts: number;
+  if (g == null)    growthPts = 3; // neutral when no data
+  else if (g >= 30) growthPts = 6;
+  else if (g >= 20) growthPts = 5;
+  else if (g >= 10) growthPts = 4;
+  else if (g >= 5)  growthPts = 3;
+  else if (g >= 0)  growthPts = 2;
+  else              growthPts = 0; // declining revenue = not capturing the opportunity
 
-  // Sweet spot: mid-cap in high-growth sector = large runway ahead
-  let base = 7;
-  if (cr >= 5000 && cr <= 80000 && isHigh) base = 14;
-  else if (cr >= 1000 && isHigh)           base = 12;
-  else if (isHigh)                         base = 10;
-  else if (cr >= 5000)                     base = 9;
+  // B. Opportunity Quality (0–5): how large and durable is the addressable market?
+  // Reuses tailwindConfig policyWeight (Union Budget allocations) — India-specific, not a static list
+  const cfg = getSectorConfig(sector, industry);
+  const pw = cfg?.policyWeight ?? (SECTOR_TO_CONFIG[sector] ? 12 : 9);
+  const opportunityPts = pw >= 18 ? 5   // defense, power, railways, semis
+                       : pw >= 15 ? 4   // pharma, digital, water
+                       : pw >= 12 ? 3
+                       : pw >= 9  ? 2
+                       : 1;
 
-  // Pricing power amplifies the opportunity (can expand margins as scale grows)
-  if (grossMargin != null && grossMargin >= 40) base = Math.min(15, base + 1);
-  return base;
+  // C. Runway Remaining (0–4): room left to compound before scale constraints bite
+  // Mid-cap (₹2K–80K Cr) = proven model + maximum remaining runway
+  let runwayPts: number;
+  if (!marketCap) {
+    runwayPts = 2;
+  } else {
+    const cr = marketCap / 1e7;
+    runwayPts = (cr >= 2000 && cr <= 80000) ? 4
+              : cr < 2000                   ? 3  // small-cap: unproven scale, lots of room
+              : cr <= 200000                ? 2  // large-cap: still meaningful
+              : 1;                               // mega-cap: TAM constraints
+  }
+
+  return Math.min(15, growthPts + opportunityPts + runwayPts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTOR 6 — GROWTH EFFICIENCY  (max 5 pts)
+//
+// Measures whether growth is *efficient*, not just fast.
+//   A. Operating Leverage (0–3): earnings outpacing revenue = margins expanding at scale
+//   B. Scale Confirmation (0–2): growth must actually be happening for leverage to matter
 // ─────────────────────────────────────────────────────────────────────────────
 
 function growthScore(
-  week52High: number, week52Low: number, cmp: number,
-  revenueGrowth: number | null, earningsGrowth: number | null
+  revenueGrowth: number | null,
+  earningsGrowth: number | null,
 ): number {
-  const g = revenueGrowth ?? earningsGrowth;
-  if (g != null) {
-    if (g >= 30) return 5;
-    if (g >= 20) return 4;
-    if (g >= 10) return 3;
-    if (g >= 0)  return 2;
-    return 1;
+  // A. Operating Leverage (0–3)
+  // The spread (earningsGrowth − revenueGrowth) is the efficiency signal:
+  //   positive spread = company is scaling without proportional cost growth
+  //   negative spread = margins diluting as revenue grows (buying growth expensively)
+  let leveragePts = 1; // neutral when data missing
+  if (revenueGrowth != null && earningsGrowth != null) {
+    if (revenueGrowth >= 0) {
+      const spread = earningsGrowth - revenueGrowth;
+      leveragePts = spread >= 10 ? 3   // strong operating leverage
+                 : spread >= 4  ? 2   // modest leverage
+                 : spread >= 0  ? 1   // growing, no leverage yet
+                 : 0;                 // margins diluting — growing expensively
+    } else {
+      leveragePts = 0; // shrinking revenue — no growth to be efficient about
+    }
+  } else if (earningsGrowth != null) {
+    leveragePts = earningsGrowth >= 15 ? 2 : earningsGrowth >= 0 ? 1 : 0;
+  } else if (revenueGrowth != null) {
+    leveragePts = revenueGrowth >= 0 ? 1 : 0;
   }
-  // Fallback: 52W position as momentum proxy
-  if (!week52High || !week52Low || week52High <= week52Low || cmp <= 0) return 2;
-  const pos = (cmp - week52Low) / (week52High - week52Low);
-  if (pos >= 0.75) return 5;
-  if (pos >= 0.50) return 4;
-  if (pos >= 0.30) return 3;
-  return 2;
+
+  // B. Scale Confirmation (0–2): leverage only matters if real top-line growth is happening
+  const g = revenueGrowth ?? earningsGrowth;
+  const scalePts = g == null ? 0 : g >= 20 ? 2 : g >= 8 ? 1 : 0;
+
+  return Math.min(5, leveragePts + scalePts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTOR 7 — VALUATION  (max 5 pts)
+//
+// PEG (PE ÷ earningsGrowth) when growth > 8% — growth-adjusted, sector-neutral.
+// Absolute PE fallback when growth is missing or too low for PEG to be meaningful.
+// PB only as last resort when PE is unavailable.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function valuationScore(pe: number | null, pb: number | null): number {
-  if (pe && pe > 0) {
-    if (pe <= 12) return 5;
-    if (pe <= 22) return 4;
-    if (pe <= 40) return 3;
-    if (pe <= 65) return 2;
-    return 1;
+function valuationScore(
+  pe: number | null,
+  pb: number | null,
+  earningsGrowth: number | null,
+): number {
+  if (pe != null && pe > 0) {
+    // PEG: only meaningful when earnings are actually growing at a decent rate
+    // Below 8% growth, PEG inflates and punishes cheap cyclicals unfairly
+    if (earningsGrowth != null && earningsGrowth > 8) {
+      const peg = pe / earningsGrowth;
+      return peg < 0.5 ? 5   // very cheap relative to growth
+           : peg < 1.0 ? 4   // fairly priced for the growth
+           : peg < 1.5 ? 3
+           : peg < 2.5 ? 2
+           : 1;              // expensive relative to growth
+    }
+    // Absolute PE fallback (low/no growth, or growth data missing)
+    return pe <= 12 ? 5 : pe <= 22 ? 4 : pe <= 40 ? 3 : pe <= 65 ? 2 : 1;
   }
-  if (pb && pb > 0) {
-    if (pb <= 1)   return 5;
-    if (pb <= 2.5) return 4;
-    if (pb <= 5)   return 3;
-    return 2;
+  // PB last resort — only reliable for asset-heavy businesses (banks, utilities)
+  if (pb != null && pb > 0) {
+    return pb <= 1 ? 5 : pb <= 2.5 ? 4 : pb <= 5 ? 3 : 2;
   }
   return 2;
 }
@@ -284,23 +407,27 @@ function valuationScore(pe: number | null, pb: number | null): number {
 export function computeIscfScore(quote: LiveQuote): number {
   const t  = tailwindScore(
     quote.sector, quote.industry,
-    quote.revenueGrowth, quote.earningsGrowth
+    quote.revenueGrowth, quote.earningsGrowth,
+    quote.operatingMargin, quote.grossMargin
   );
-  const m  = managementScore(quote.sector, quote.marketCap, quote.roe, quote.debtEquity);
+  const m  = managementScore(
+    quote.sector, quote.marketCap, quote.roe, quote.debtEquity,
+    quote.insiderHolding, quote.revenueGrowth, quote.earningsGrowth
+  );
   const fi = financialScore(
-    quote.pe, quote.roe, quote.operatingMargin, quote.grossMargin,
-    quote.revenueGrowth, quote.earningsGrowth, quote.debtEquity
+    quote.pe, quote.roce, quote.operatingMargin, quote.grossMargin,
+    quote.debtEquity, quote.operatingCashFlow, quote.marketCap
   );
   const mo = moatScore(
     quote.sector, quote.industry, quote.marketCap,
-    quote.grossMargin, quote.roe, quote.debtEquity
+    quote.grossMargin, quote.roce
   );
-  const r  = revenueOpportunityScore(quote.sector, quote.marketCap, quote.grossMargin);
-  const g  = growthScore(
-    quote.week52High, quote.week52Low, quote.cmp,
+  const r  = revenueOpportunityScore(
+    quote.sector, quote.industry, quote.marketCap,
     quote.revenueGrowth, quote.earningsGrowth
   );
-  const v  = valuationScore(quote.pe, quote.pb);
+  const g  = growthScore(quote.revenueGrowth, quote.earningsGrowth);
+  const v  = valuationScore(quote.pe, quote.pb, quote.earningsGrowth);
 
   return Math.min(100, Math.max(1, t + m + fi + mo + r + g + v));
 }

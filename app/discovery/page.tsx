@@ -12,6 +12,7 @@ import ScoreGauge from '@/components/ui/ScoreGauge';
 import type { LiveQuote, StockFundamentals } from '@/lib/nse/types';
 import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
 import { tailwindConfig } from '@/lib/nse/tailwindConfig';
+import { govIntelligence } from '@/lib/nse/govIntelligence';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ function symbolToStub(symbol: string, name: string): DisplayStock {
     pe: null, forwardPe: null, pb: null,
     roe: null, operatingMargin: null, grossMargin: null, profitMargin: null,
     revenueGrowth: null, earningsGrowth: null, debtEquity: null,
+    insiderHolding: null, roce: null, operatingCashFlow: null,
     sector: curated?.sector ?? '', industry: curated?.industry ?? '',
     week52High: 0, week52Low: 0, volume: 0,
   };
@@ -248,6 +250,10 @@ export default function DiscoveryPage() {
               <span className="text-xs" style={{ color: 'rgba(232,236,244,0.25)', fontSize: '10px' }}>
                 Updated {tailwindConfig.lastUpdated} · <a href="/admin/tailwind" className="underline" style={{ color: 'rgba(212,168,83,0.5)' }}>Refresh</a>
               </span>
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.08)', color: '#10b981', border: '1px solid rgba(16,185,129,0.15)', fontSize: '10.5px' }}>
+                Gov Intel: {govIntelligence.lastUpdated}
+              </span>
+              <a href="/admin/gov-intelligence" className="text-xs underline" style={{ color: 'rgba(16,185,129,0.5)', fontSize: '10px' }}>Refresh</a>
             </div>
           </div>
           <div className="flex items-center gap-2">

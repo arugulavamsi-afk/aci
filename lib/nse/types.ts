@@ -27,6 +27,11 @@ export interface LiveQuote {
   earningsGrowth: number | null;
   // Leverage
   debtEquity: number | null;
+  // Ownership
+  insiderHolding: number | null;    // promoter/insider % held (Yahoo heldPercentInsiders × 100)
+  // Capital efficiency
+  roce: number | null;              // Return on Capital Employed % — EBIT / (Equity + LT Debt)
+  operatingCashFlow: number | null; // Absolute operating cash flow (INR, same units as marketCap)
   // Price context
   sector: string;
   industry: string;

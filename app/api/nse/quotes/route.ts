@@ -13,6 +13,9 @@ const FIELDS = [
   'returnOnEquity', 'operatingMargins', 'grossMargins', 'profitMargins',
   'revenueGrowth', 'earningsGrowth',
   'debtToEquity',
+  'totalRevenue', 'totalDebt', 'bookValue', 'sharesOutstanding',
+  'operatingCashflow',
+  'heldPercentInsiders',
   'shortName', 'longName',
   'sector', 'industry',
   'fiftyTwoWeekHigh', 'fiftyTwoWeekLow',
@@ -25,6 +28,30 @@ function pct(v: number | undefined | null): number | null {
 
 function num(v: number | undefined | null): number | null {
   return v != null && isFinite(v) ? v : null;
+}
+
+// ROCE = EBIT / Capital Employed
+// EBIT ≈ operatingMargins × totalRevenue (operating income ≈ EBIT)
+// Capital Employed = (bookValue per share × sharesOutstanding) + totalDebt
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function computeRoce(q: any): number | null {
+  const opMargin = q.operatingMargins;    // ratio, e.g. 0.18
+  const revenue  = q.totalRevenue;        // absolute INR
+  const bvps     = q.bookValue;           // book value per share INR
+  const shares   = q.sharesOutstanding;   // total shares
+  const debt     = q.totalDebt ?? 0;      // absolute INR, optional
+
+  if (opMargin == null || !isFinite(opMargin)) return null;
+  if (!revenue   || !isFinite(revenue))  return null;
+  if (!bvps      || !isFinite(bvps))     return null;
+  if (!shares    || !isFinite(shares))   return null;
+
+  const ebit           = opMargin * revenue;
+  const equity         = bvps * shares;
+  const capitalEmployed = equity + (isFinite(debt) ? debt : 0);
+
+  if (capitalEmployed <= 0) return null; // negative book value edge case
+  return Math.round((ebit / capitalEmployed) * 1000) / 10; // ROCE as %
 }
 
 // GET /api/nse/quotes?symbols=RELIANCE,TCS,INFY
@@ -83,6 +110,11 @@ export async function GET(req: NextRequest) {
       earningsGrowth:  pct(q.earningsGrowth),
       // Leverage — Yahoo returns already as ratio (not %)
       debtEquity:      q.debtToEquity != null ? Math.round(q.debtToEquity * 10) / 10 : null,
+      // Capital efficiency — ROCE computed from operating income / capital employed
+      roce:              computeRoce(q),
+      operatingCashFlow: num(q.operatingCashflow),
+      // Ownership — Yahoo returns as ratio (0.52 = 52%), convert to %
+      insiderHolding:  pct(q.heldPercentInsiders),
       // Context
       sector:          (q.sector as string) ?? '',
       industry:        (q.industry as string) ?? '',
