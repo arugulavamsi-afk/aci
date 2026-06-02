@@ -1,7 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 const SYSTEM_PROMPT = `You are the Aishwaryamasthu AI Copilot — an institutional-grade investment research assistant specialized in Indian equity markets.
 
 You analyze stocks using the ISCF (India Structural Compounder Framework) — a 7-factor scoring model:
@@ -25,26 +23,51 @@ Guidelines:
 - For NSE stocks, append .NS for Yahoo Finance reference`;
 
 export async function POST(req: Request) {
-  const { messages } = await req.json() as { messages: { role: 'user' | 'assistant'; content: string }[] };
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return Response.json(
+      { error: 'ANTHROPIC_API_KEY is not configured. Add it in Vercel → Settings → Environment Variables, then redeploy.' },
+      { status: 503 }
+    );
+  }
 
-  const stream = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages,
-    stream: true,
-  });
+  let messages: { role: 'user' | 'assistant'; content: string }[];
+  try {
+    ({ messages } = await req.json());
+  } catch {
+    return Response.json({ error: 'Invalid request body' }, { status: 400 });
+  }
+
+  const client = new Anthropic({ apiKey });
 
   const encoder = new TextEncoder();
+
   const readable = new ReadableStream({
     async start(controller) {
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          controller.enqueue(encoder.encode(event.delta.text));
+      try {
+        const stream = await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          system: SYSTEM_PROMPT,
+          messages,
+          stream: true,
+        });
+
+        for await (const event of stream) {
+          if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+            controller.enqueue(encoder.encode(event.delta.text));
+          }
+          if (event.type === 'message_stop') {
+            controller.close();
+            return;
+          }
         }
-        if (event.type === 'message_stop') {
-          controller.close();
-        }
+        controller.close();
+      } catch (err) {
+        // Stream the error message as text so the client can display it
+        const msg = err instanceof Error ? err.message : String(err);
+        controller.enqueue(encoder.encode(`\n\n**Error from Claude API:** ${msg}`));
+        controller.close();
       }
     },
   });
