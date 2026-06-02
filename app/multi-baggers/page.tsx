@@ -100,9 +100,10 @@ function computeMbComponents(q: LiveQuote) {
 interface StockPoint {
   ticker: string;
   name: string;
-  x: number;        // revenue growth %
-  y: number;        // ISCF score
-  z: number;        // market cap Cr — drives bubble size
+  x: number;          // growth metric (see xMetric)
+  xMetric: string;    // what x actually is: 'Rev Growth' | 'EPS Growth' | 'Est.(ROE)'
+  y: number;          // ISCF score
+  z: number;          // market cap Cr — drives bubble size
   mbScore: number;
   conviction: 'High' | 'Medium' | 'Low';
   sector: string;
@@ -157,7 +158,7 @@ const BubbleTooltip = ({ active, payload }: { active?: boolean; payload?: { payl
         {[
           { label: 'MB Score',   value: `${d.mbScore}/100`,                 color: tier.color },
           { label: 'ISCF',       value: `${d.y}/100`,                       color: getScoreColor(d.y) },
-          { label: 'Rev Growth', value: `${d.x > 0 ? '+' : ''}${d.x}%`,    color: d.x >= 15 ? '#10b981' : d.x >= 0 ? '#f59e0b' : '#ef4444' },
+          { label: d.xMetric,    value: `${d.x > 0 ? '+' : ''}${d.x}%`,    color: d.x >= 15 ? '#10b981' : d.x >= 0 ? '#f59e0b' : '#ef4444' },
           { label: 'Market Cap', value: mcLabel,                            color: 'rgba(232,236,244,0.55)' },
           { label: 'Sector',     value: d.sector || '—',                    color: d.color },
         ].map(m => (
@@ -263,13 +264,26 @@ export default function MultiBaggerPage() {
       const q = quotes.get(ticker);
       if (!q || q.cmp === 0) return null;
       const iscf = computeIscfScore(q);
-      const g    = q.revenueGrowth ?? q.earningsGrowth ?? 0;
       const mcCr = (q.marketCap ?? 0) / 1e7;
       const sector = q.sector ?? '';
+      // Cascade: use real growth data when available, estimate from ROE otherwise
+      // (ROE × ~45% retention ≈ sustainable growth rate — better than forcing 0)
+      let g: number;
+      let xMetric: string;
+      if (q.revenueGrowth != null) {
+        g = q.revenueGrowth;          xMetric = 'Rev Growth';
+      } else if (q.earningsGrowth != null) {
+        g = q.earningsGrowth;         xMetric = 'EPS Growth';
+      } else if (q.roe != null) {
+        g = Math.round(q.roe * 0.45); xMetric = 'Est.(ROE×0.45)';
+      } else {
+        g = 0;                        xMetric = 'N/A';
+      }
       return {
         ticker,
         name:       q.name || ticker,
         x:          Math.round(g * 10) / 10,
+        xMetric,
         y:          iscf,
         z:          Math.max(500, Math.min(mcCr, 250000)),
         mbScore:    computeMbScore(q),
@@ -397,7 +411,7 @@ export default function MultiBaggerPage() {
           <div>
             <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>Multi-Bagger Bubble Map</h2>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(232,236,244,0.4)' }}>
-              Bubble size = market cap · Color = sector · Click any bubble to open company page
+              X = Rev Growth (EPS Growth or ROE estimate as fallback) · Y = ISCF Quality · Size = Market Cap · Color = Sector
             </p>
           </div>
           {loading && <Loader2 size={14} className="animate-spin" style={{ color: 'rgba(232,236,244,0.3)' }} />}
@@ -445,11 +459,11 @@ export default function MultiBaggerPage() {
             <ScatterChart margin={{ top: 20, right: 20, left: 0, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
               <XAxis
-                type="number" dataKey="x" name="Revenue Growth %"
+                type="number" dataKey="x" name="Growth %"
                 domain={['auto', 'auto']}
                 tick={{ fill: 'rgba(232,236,244,0.25)', fontSize: 10 }}
                 axisLine={{ stroke: 'rgba(255,255,255,0.06)' }} tickLine={false}
-                label={{ value: 'Revenue Growth %', position: 'insideBottom', offset: -10, fill: 'rgba(232,236,244,0.2)', fontSize: 10 }}
+                label={{ value: 'Growth % (rev → eps → est.)', position: 'insideBottom', offset: -10, fill: 'rgba(232,236,244,0.2)', fontSize: 10 }}
               />
               <YAxis
                 type="number" dataKey="y" name="ISCF Score"
