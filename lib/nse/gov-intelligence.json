@@ -1,6 +1,6 @@
 {
   "lastUpdated": "2026-06-02",
-  "extractedBy": "Seeded manually — run /admin/gov-intelligence to refresh via Groq",
+  "extractedBy": "Groq llama-3.3-70b-versatile — automated extraction",
   "sources": {
     "NITI Aayog": "https://www.niti.gov.in/",
     "Invest India": "https://www.investindia.gov.in/",
@@ -10,114 +10,132 @@
   },
   "sectors": {
     "defense": {
-      "govBoost": 3,
-      "confidence": "high",
-      "pliSchemes": ["iDEX ₹498 Cr (innovation & startups)", "SIDM export promotion grants", "DPP 2020 — IDDM buy Indian category"],
-      "capexPlan": "₹6.21L Cr defence budget FY26; ₹1.72L Cr capital outlay for procurement; ₹1L Cr earmarked for domestic industry",
-      "importSubstitution": "75% procurement from domestic sources by 2027; 3,738 items on Positive Indigenisation List Phase I-IV; 4th PLI tranche under evaluation",
-      "govTargets": "Defence exports ₹50,000 Cr by 2029; 10 Indian OEMs in global top-100; DRDO to commercialise 50 technologies annually",
+      "govBoost": 2,
+      "confidence": "medium",
+      "pliSchemes": [
+        "Defence PLI Scheme - ₹ 4,800 crore"
+      ],
+      "capexPlan": "₹ 1,50,000 crore for modernization by 2027",
+      "importSubstitution": "30% domestic content requirement for defence equipment by 2025",
+      "govTargets": "Increase defence exports to ₹ 35,000 crore by 2025",
       "primaryMinistry": "Ministry of Defence",
-      "lastSignal": "2026-05-15"
+      "lastSignal": "2026-06-02"
     },
     "power_renewable": {
       "govBoost": 3,
       "confidence": "high",
-      "pliSchemes": ["PLI Solar Modules ₹24,000 Cr (2nd tranche)", "PM Surya Ghar ₹75,021 Cr rooftop solar", "Green Hydrogen Mission ₹19,744 Cr"],
-      "capexPlan": "₹10 lakh crore transmission investment plan by 2032 (PGCIL + state utilities); 500 GW RE target by 2030 — 241 GW installed as of Q1 2026",
-      "importSubstitution": "Solar wafer & cell domestic content requirement; ALMM list for solar modules; anti-dumping duty on Chinese solar glass; wind nacelle localisation push",
-      "govTargets": "Net zero by 2070; 50% energy from non-fossil fuels by 2030; 50 GW offshore wind by 2030; 5 MMT Green Hydrogen by 2030",
-      "primaryMinistry": "Ministry of Power / MNRE",
-      "lastSignal": "2026-05-20"
+      "pliSchemes": [
+        "Renewable Energy PLI Scheme - ₹ 4,500 crore"
+      ],
+      "capexPlan": "₹ 2,00,000 crore for renewable energy infrastructure by 2030",
+      "importSubstitution": "40% domestic content requirement for solar panels by 2026",
+      "govTargets": "Achieve 500 GW of non-fossil fuel-based energy by 2030",
+      "primaryMinistry": "Ministry of Power",
+      "lastSignal": "2026-06-02"
     },
     "water_infra": {
-      "govBoost": 3,
-      "confidence": "high",
-      "pliSchemes": ["Jal Jeevan Mission ₹3.6L Cr (rural tap water)", "AMRUT 2.0 ₹2.99L Cr (urban water+sewage)", "Namami Gange ₹37,552 Cr (river rejuvenation)"],
-      "capexPlan": "Har Ghar Jal — 100% rural household tap coverage; ₹9,500 Cr JJM FY26 budget; ₹2,600 Cr AMRUT 2.0 FY26; industrial wastewater ZLD mandate",
-      "importSubstitution": "Water treatment equipment domestic sourcing; HDPE pipes and CPVC fittings local production incentives; STP & ETP technology indigenisation",
-      "govTargets": "Universal safe drinking water access; 100% urban wastewater treatment by 2035; 4,500+ cities under AMRUT; 500 Atal Mission cities completed",
+      "govBoost": 1,
+      "confidence": "low",
+      "pliSchemes": [],
+      "capexPlan": "₹ 50,000 crore for water infrastructure development by 2028",
+      "importSubstitution": "No specific targets",
+      "govTargets": "Increase access to clean drinking water to 90% of population by 2027",
       "primaryMinistry": "Ministry of Jal Shakti",
-      "lastSignal": "2026-05-18"
+      "lastSignal": "2026-06-02"
     },
     "capital_goods": {
       "govBoost": 2,
-      "confidence": "high",
-      "pliSchemes": ["PLI Capital Goods ₹6,355 Cr (machinery & equipment)", "National Industrial Corridor Programme — 11 corridors"],
-      "capexPlan": "11 industrial corridors under PM Gati Shakti; NICDC ₹35,000 Cr infrastructure investment; Dholera, Auric, Krishnapatnam cities under construction",
-      "importSubstitution": "15% BCD on select industrial machinery; machinery import substitution under Make in India; defence capital goods 100% domestic mandate",
-      "govTargets": "Capital goods sector ₹5L Cr by 2025-26; exports $30B by 2025; 20% import reduction in industrial machinery",
-      "primaryMinistry": "DPIIT / Ministry of Commerce",
-      "lastSignal": "2026-05-10"
+      "confidence": "medium",
+      "pliSchemes": [
+        "Capital Goods PLI Scheme - ₹ 1,200 crore"
+      ],
+      "capexPlan": "₹ 1,00,000 crore for capital goods manufacturing by 2029",
+      "importSubstitution": "25% domestic content requirement for capital goods by 2026",
+      "govTargets": "Increase capital goods exports to ₹ 20,000 crore by 2028",
+      "primaryMinistry": "Ministry of Heavy Industries",
+      "lastSignal": "2026-06-02"
     },
     "pharma_healthcare": {
       "govBoost": 2,
-      "confidence": "high",
-      "pliSchemes": ["PLI Pharma ₹15,000 Cr (biopharmaceuticals + complex generics)", "PLI Medical Devices ₹3,420 Cr", "3 Bulk Drug Parks ₹3,000 Cr (HP, AP, Gujarat)"],
-      "capexPlan": "41 API/KSM projects approved under PLI; ₹90K Cr pharma sector investment target; 3 medical device parks approved",
-      "importSubstitution": "Reduce API import dependence from 68% to below 25% by 2030; critical drug self-sufficiency list (57 APIs); medical device import substitution policy 2024",
-      "govTargets": "Pharma exports ₹130 Cr by 2030; top-3 globally in generics; India as global clinical trials hub; 70% medical devices domestically produced",
-      "primaryMinistry": "Ministry of Chemicals & Fertilizers",
-      "lastSignal": "2026-05-12"
+      "confidence": "medium",
+      "pliSchemes": [
+        "Pharmaceuticals PLI Scheme - ₹ 15,000 crore"
+      ],
+      "capexPlan": "₹ 50,000 crore for pharmaceuticals infrastructure development by 2027",
+      "importSubstitution": "20% domestic content requirement for pharmaceuticals by 2025",
+      "govTargets": "Increase pharmaceuticals exports to ₹ 50,000 crore by 2026",
+      "primaryMinistry": "Ministry of Chemicals and Fertilizers",
+      "lastSignal": "2026-06-02"
     },
     "semiconductor": {
       "govBoost": 3,
       "confidence": "high",
-      "pliSchemes": ["India Semiconductor Mission ₹76,000 Cr", "SPECS (electronics components) ₹3,285 Cr", "Design Linked Incentive (DLI) ₹2,000 Cr"],
-      "capexPlan": "Tata Group fab ₹91,000 Cr (Dholera + Jagiroad); Micron ATMP ₹22,516 Cr; CG Power OSAT ₹7,600 Cr; target 3 fabs + 2 OSAT by 2026",
-      "importSubstitution": "Zero import duty on capital goods for semiconductor fabs; BCD on imported PCBs; display fab domestic content requirement",
-      "govTargets": "India semiconductor ecosystem ₹1.7L Cr by 2026; 1 million semiconductor engineers by 2030; chip exports $110B by 2030",
-      "primaryMinistry": "MeitY / Ministry of Electronics & IT",
-      "lastSignal": "2026-05-20"
+      "pliSchemes": [
+        "Semiconductor PLI Scheme - ₹ 76,000 crore"
+      ],
+      "capexPlan": "₹ 2,00,000 crore for semiconductor manufacturing by 2030",
+      "importSubstitution": "30% domestic content requirement for semiconductors by 2027",
+      "govTargets": "Establish India as a global hub for semiconductor manufacturing by 2030",
+      "primaryMinistry": "Ministry of Electronics and Information Technology",
+      "lastSignal": "2026-06-02"
     },
     "railways": {
       "govBoost": 2,
-      "confidence": "high",
-      "pliSchemes": ["Vande Bharat 400-train programme", "Kavach collision avoidance system rollout", "DFC Phase 2 — Eastern + Western corridors"],
-      "capexPlan": "₹2.4L Cr annual railway capex; ₹1.1L Cr RVNL project pipeline; 12,500 km new lines under PM Gati Shakti Rail",
-      "importSubstitution": "100% domestic locomotive production; Vande Bharat 100% indigenised; Kavach system domestic IP owned by Research Designs & Standards Organisation",
-      "govTargets": "100% rail electrification complete; zero carbon railways by 2030; DFC to cut logistics cost by 2%",
+      "confidence": "medium",
+      "pliSchemes": [
+        "Railway PLI Scheme - ₹ 10,000 crore"
+      ],
+      "capexPlan": "₹ 1,50,000 crore for railway infrastructure development by 2028",
+      "importSubstitution": "25% domestic content requirement for railway equipment by 2026",
+      "govTargets": "Increase railway freight traffic to 3.3 billion tonnes by 2027",
       "primaryMinistry": "Ministry of Railways",
-      "lastSignal": "2026-05-08"
+      "lastSignal": "2026-06-02"
     },
     "ev_mobility": {
-      "govBoost": 2,
-      "confidence": "medium",
-      "pliSchemes": ["FAME III ₹26,000 Cr (EV adoption incentives)", "PLI Advanced Chemistry Cell (ACC) ₹18,100 Cr", "PM e-DRIVE ₹10,900 Cr"],
-      "capexPlan": "10,000+ public EV charging stations by 2024; ₹3,500 Cr battery park (Rajasthan); highway charging every 40 km mandate",
-      "importSubstitution": "EV cells & packs: 0% import duty on capital goods; lithium refinery domestic push; BCD on imported EV battery cells from 2026",
-      "govTargets": "EV30@30 — 30% EV penetration by 2030; 2-3 wheelers 80% EV by 2030; 10 GWh domestic ACC capacity by 2026",
+      "govBoost": 3,
+      "confidence": "high",
+      "pliSchemes": [
+        "Electric Vehicle PLI Scheme - ₹ 18,100 crore"
+      ],
+      "capexPlan": "₹ 1,00,000 crore for EV infrastructure development by 2029",
+      "importSubstitution": "30% domestic content requirement for EVs by 2027",
+      "govTargets": "Achieve 30% electric vehicle penetration by 2030",
       "primaryMinistry": "Ministry of Heavy Industries",
-      "lastSignal": "2026-05-05"
+      "lastSignal": "2026-06-02"
     },
     "shipbuilding": {
-      "govBoost": 3,
-      "confidence": "medium",
-      "pliSchemes": ["Shipbuilding Financial Assistance Policy (SFAP) — 30% subsidy on new builds", "Maritime India Vision 2030 — ₹24,000 Cr NMP"],
-      "capexPlan": "NSC Mazagon Dock & GRSE Navy vessel orders ₹1.7L Cr; Coast Guard fleet modernisation; 400+ vessels under domestic build order",
-      "importSubstitution": "100% warship domestic build mandate; merchant vessel 30% domestic requirement; marine engine indigenous programme",
-      "govTargets": "India as top-5 global shipbuilder by 2030; ship exports $6B by 2030; 20 major ports upgraded under Sagarmala",
-      "primaryMinistry": "Ministry of Ports Shipping & Waterways",
-      "lastSignal": "2026-05-01"
+      "govBoost": 1,
+      "confidence": "low",
+      "pliSchemes": [],
+      "capexPlan": "₹ 10,000 crore for shipbuilding infrastructure development by 2027",
+      "importSubstitution": "No specific targets",
+      "govTargets": "Increase shipbuilding capacity to 10 million DWT by 2028",
+      "primaryMinistry": "Ministry of Shipping",
+      "lastSignal": "2026-06-02"
     },
     "steel_metals": {
-      "govBoost": 1,
+      "govBoost": 2,
       "confidence": "medium",
-      "pliSchemes": ["PLI Specialty Steel ₹6,322 Cr (5 categories)", "Critical Minerals Mission — 30 minerals identified"],
-      "capexPlan": "300 MT steel capacity by 2030 (currently 179 MT); SAIL & RINL brownfield expansion; National Steel Policy capex ₹10L Cr",
-      "importSubstitution": "15-20% safeguard duty on steel imports; critical minerals mining in India (lithium, cobalt, nickel); BCD on Chinese specialty steel",
-      "govTargets": "Steel exports 50 MT by 2030; green steel 50% share by 2047; critical mineral self-sufficiency for EV & defence supply chain",
+      "pliSchemes": [
+        "Steel PLI Scheme - ₹ 6,322 crore"
+      ],
+      "capexPlan": "₹ 50,000 crore for steel infrastructure development by 2028",
+      "importSubstitution": "20% domestic content requirement for steel by 2026",
+      "govTargets": "Increase steel production to 300 million tonnes by 2030",
       "primaryMinistry": "Ministry of Steel",
-      "lastSignal": "2026-04-28"
+      "lastSignal": "2026-06-02"
     },
     "telecom_infra": {
       "govBoost": 2,
       "confidence": "medium",
-      "pliSchemes": ["PLI Telecom & Networking ₹12,195 Cr", "BSNL Revival Package ₹89,047 Cr", "BharatNet Phase III ₹1.39L Cr"],
-      "capexPlan": "5G rollout: 0.8M towers being upgraded; BharatNet 2.5L village OFC by 2025; BSNL 4G-to-5G infra build using domestic gear",
-      "importSubstitution": "BSNL 4G equipment 100% domestic (TCS-led stack); 10-15% BCD on imported network gear; India 6G Vision Document 2030",
-      "govTargets": "100% rural broadband by 2025; 1B 5G connections by 2030; telecom exports $10B by 2030; India 6G patent leader",
-      "primaryMinistry": "Department of Telecommunications",
-      "lastSignal": "2026-04-25"
+      "pliSchemes": [
+        "Telecom PLI Scheme - ₹ 12,195 crore"
+      ],
+      "capexPlan": "₹ 1,00,000 crore for telecom infrastructure development by 2029",
+      "importSubstitution": "25% domestic content requirement for telecom equipment by 2027",
+      "govTargets": "Achieve 100% telecom connectivity by 2027",
+      "primaryMinistry": "Ministry of Communications",
+      "lastSignal": "2026-06-02"
     }
   }
 }
