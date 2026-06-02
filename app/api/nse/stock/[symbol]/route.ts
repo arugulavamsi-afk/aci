@@ -1,5 +1,5 @@
 import { getYahooAuth } from '@/lib/nse/yahooAuth';
-import type { StockFundamentals } from '@/lib/nse/types';
+import type { StockFundamentals, IncomeHistoryItem } from '@/lib/nse/types';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
@@ -71,6 +71,17 @@ export async function GET(
     const ap  = result.assetProfile ?? {};
     const ish = result.incomeStatementHistory?.incomeStatementHistory ?? [];
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const incomeHistory: IncomeHistoryItem[] = (ish as any[])
+      .filter(s => s.totalRevenue?.raw > 0)
+      .sort((a, b) => (a.endDate?.raw ?? 0) - (b.endDate?.raw ?? 0))
+      .map(s => ({
+        year:    new Date((s.endDate?.raw ?? 0) * 1000).getFullYear().toString(),
+        revenue: Math.round((s.totalRevenue?.raw ?? 0) / 1e7),
+        profit:  Math.round((s.netIncome?.raw ?? 0) / 1e7),
+        eps:     s.basicEps?.raw != null ? Math.round(s.basicEps.raw * 10) / 10 : null,
+      }));
+
     const fundamentals: StockFundamentals = {
       roe:             pct(fd.returnOnEquity?.raw),
       revenueGrowthYoy: pct(fd.revenueGrowth?.raw),
@@ -82,6 +93,7 @@ export async function GET(
       evEbitda:        round1(ks.enterpriseToEbitda?.raw),
       description:     (ap.longBusinessSummary as string) ?? '',
       city:            (ap.city as string) ?? '',
+      incomeHistory,
     };
 
     return Response.json({ symbol, fundamentals });

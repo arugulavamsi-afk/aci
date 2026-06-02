@@ -404,6 +404,32 @@ function valuationScore(
 // PUBLIC API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface FactorBreakdownItem {
+  category: string;
+  score: number;
+  weight: number;
+  color: string;
+}
+
+export function computeFactorBreakdown(quote: LiveQuote): FactorBreakdownItem[] {
+  return [
+    { category: 'Structural Tailwind', weight: 25, color: '#d4a853',
+      score: tailwindScore(quote.sector, quote.industry, quote.revenueGrowth, quote.earningsGrowth, quote.operatingMargin, quote.grossMargin) },
+    { category: 'Management Quality',  weight: 20, color: '#10b981',
+      score: managementScore(quote.sector, quote.marketCap, quote.roe, quote.debtEquity, quote.insiderHolding, quote.revenueGrowth, quote.earningsGrowth) },
+    { category: 'Financial Quality',   weight: 15, color: '#2bb5d4',
+      score: financialScore(quote.pe, quote.roce, quote.operatingMargin, quote.grossMargin, quote.debtEquity, quote.operatingCashFlow, quote.marketCap) },
+    { category: 'Moat Strength',       weight: 15, color: '#8b5cf6',
+      score: moatScore(quote.sector, quote.industry, quote.marketCap, quote.grossMargin, quote.roce) },
+    { category: 'Revenue Opportunity', weight: 15, color: '#0c7b93',
+      score: revenueOpportunityScore(quote.sector, quote.industry, quote.marketCap, quote.revenueGrowth, quote.earningsGrowth) },
+    { category: 'Growth Efficiency',   weight:  5, color: '#f59e0b',
+      score: growthScore(quote.revenueGrowth, quote.earningsGrowth) },
+    { category: 'Valuation',           weight:  5, color: '#ec4899',
+      score: valuationScore(quote.pe, quote.pb, quote.earningsGrowth) },
+  ];
+}
+
 export function computeIscfScore(quote: LiveQuote): number {
   const t  = tailwindScore(
     quote.sector, quote.industry,

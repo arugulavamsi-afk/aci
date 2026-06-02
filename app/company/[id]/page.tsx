@@ -1,18 +1,18 @@
 'use client';
 
 import { use, useState, useEffect } from 'react';
-import { stocks as curatedStocks, revenueData, moatRadarData, riskData, scoreBreakdown } from '@/lib/data/mockData';
+import { stocks as curatedStocks, riskData } from '@/lib/data/mockData';
 import { getScoreColor, getScoreLabel } from '@/lib/utils';
 import ScoreGauge from '@/components/ui/ScoreGauge';
 import ScoreBar from '@/components/ui/ScoreBar';
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { Star, TrendingUp, TrendingDown, Shield, Zap, Building2, MapPin, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import type { LiveQuote, StockFundamentals } from '@/lib/nse/types';
-import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
+import { computeIscfScore, computeFactorBreakdown, scoreToConviction } from '@/lib/nse/scoring';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -27,12 +27,21 @@ curatedStocks.forEach(s => {
   curatedByIdOrTicker.set(s.ticker.toLowerCase(), s);
 });
 
-const revenueSegments = [
-  { name: 'Primary Business', value: 58, color: '#d4a853' },
-  { name: 'Secondary Segment', value: 18, color: '#0c7b93' },
-  { name: 'Other Verticals', value: 14, color: '#10b981' },
-  { name: 'Export & Misc', value: 10, color: '#8b5cf6' },
-];
+function buildMoatRadar(quote: LiveQuote | null) {
+  if (!quote) return [];
+  const gm = quote.grossMargin ?? 0;
+  const rc = quote.roce ?? 0;
+  const rev = quote.revenueGrowth ?? 0;
+  const om = quote.operatingMargin ?? 0;
+  const mcCr = (quote.marketCap ?? 0) / 1e7;
+  return [
+    { subject: 'Pricing Power',    score: Math.min(100, gm > 0 ? gm * 1.4 : 30) },
+    { subject: 'Capital Return',   score: Math.min(100, rc > 0 ? rc * 3.5 : 30) },
+    { subject: 'Market Scale',     score: Math.min(100, mcCr > 0 ? Math.log10(mcCr + 1) * 22 : 20) },
+    { subject: 'Revenue Growth',   score: Math.min(100, Math.max(0, rev * 3.5 + 20)) },
+    { subject: 'Margin Quality',   score: Math.min(100, om > 0 ? om * 3 + 10 : 20) },
+  ];
+}
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) => {
   if (active && payload?.length) {
@@ -111,6 +120,9 @@ export default function CompanyPage({ params }: PageProps) {
   const week52Low  = quote?.week52Low ?? 0;
 
   const score = quote ? computeIscfScore(quote) : (curated?.compoundScore ?? 70);
+  const factorBreakdown = quote ? computeFactorBreakdown(quote) : null;
+  const moatRadar = buildMoatRadar(quote);
+  const incomeHistory = fundamentals?.incomeHistory ?? [];
   const conviction = scoreToConviction(score);
   const color = getScoreColor(score);
   const isUp  = changePct >= 0;
@@ -280,68 +292,83 @@ export default function CompanyPage({ params }: PageProps) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="glass-card p-6">
-                <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>10-Year Revenue & Profit Trend</h3>
-                <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={revenueData} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0c7b93" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#0c7b93" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="profGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#d4a853" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#d4a853" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#0c7b93" strokeWidth={2} fill="url(#revGrad)" dot={false} />
-                    <Area type="monotone" dataKey="profit" name="Profit" stroke="#d4a853" strokeWidth={2} fill="url(#profGrad)" dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>
+                  Revenue & Net Profit
+                  <span className="ml-2 text-xs font-normal" style={{ color: 'rgba(232,236,244,0.35)' }}>
+                    {incomeHistory.length > 0 ? `${incomeHistory.length}-year history · ₹Cr` : 'Loading…'}
+                  </span>
+                </h3>
+                {incomeHistory.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={incomeHistory} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#0c7b93" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#0c7b93" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="profGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#d4a853" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#d4a853" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? `${Math.round(v/1000)}K` : String(v)} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#0c7b93" strokeWidth={2} fill="url(#revGrad)" dot={false} />
+                      <Area type="monotone" dataKey="profit" name="Profit" stroke="#d4a853" strokeWidth={2} fill="url(#profGrad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-[200px]" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '12px' }}>
+                    Historical financials unavailable
+                  </div>
+                )}
               </div>
-              <div className="glass-card p-6">
-                <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>EPS & Free Cash Flow</h3>
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={revenueData.slice(4)} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="eps" name="EPS (₹)" fill="#10b981" radius={[4,4,0,0]} opacity={0.8} />
-                    <Bar dataKey="fcf" name="FCF (₹Cr)" fill="#8b5cf6" radius={[4,4,0,0]} opacity={0.6} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div className="glass-card p-5">
-                <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Revenue Segments</h3>
-                <div className="flex justify-center mb-4">
-                  <PieChart width={160} height={160}>
-                    <Pie data={revenueSegments} cx={80} cy={80} innerRadius={45} outerRadius={72} paddingAngle={3} dataKey="value">
-                      {revenueSegments.map((entry, index) => <Cell key={index} fill={entry.color} stroke="none" />)}
-                    </Pie>
-                  </PieChart>
+
+              {incomeHistory.some(d => d.eps != null) && (
+                <div className="glass-card p-6">
+                  <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Earnings Per Share (₹)</h3>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <BarChart data={incomeHistory} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar dataKey="eps" name="EPS (₹)" fill="#10b981" radius={[4,4,0,0]} opacity={0.85} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="space-y-2">
-                  {revenueSegments.map(seg => (
-                    <div key={seg.name} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ background: seg.color }} />
-                        <span className="text-xs" style={{ color: 'rgba(232,236,244,0.55)', fontSize: '11px' }}>{seg.name}</span>
-                      </div>
-                      <span className="text-xs font-bold" style={{ color: seg.color }}>{seg.value}%</span>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {/* Live financial snapshot replaces the fake revenue segments pie */}
+              <div className="glass-card p-5">
+                <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Financial Snapshot</h3>
+                <div className="space-y-3">
+                  {[
+                    { label: 'Market Cap',     value: marketCapLabel,                          color: '#e8ecf4' },
+                    { label: 'ROE',            value: val(roe, '%'),                            color: (roe ?? 0) >= 18 ? '#10b981' : '#f59e0b' },
+                    { label: 'ROCE',           value: quote?.roce != null ? `${quote.roce}%` : '—', color: (quote?.roce ?? 0) >= 15 ? '#10b981' : '#f59e0b' },
+                    { label: 'Gross Margin',   value: val(quote?.grossMargin, '%'),             color: (quote?.grossMargin ?? 0) >= 35 ? '#10b981' : '#f59e0b' },
+                    { label: 'Op Margin',      value: val(opMargin, '%'),                       color: (opMargin ?? 0) >= 15 ? '#10b981' : '#f59e0b' },
+                    { label: 'Revenue Growth', value: val(revGrowth, '%'),                      color: '#0c7b93' },
+                    { label: 'D/E Ratio',      value: debtEquity != null ? `${debtEquity}x` : '—', color: (debtEquity ?? 0) < 0.5 ? '#10b981' : '#f59e0b' },
+                    { label: 'Insider Hold',   value: quote?.insiderHolding != null ? `${quote.insiderHolding.toFixed(1)}%` : '—', color: (quote?.insiderHolding ?? 0) >= 35 ? '#10b981' : '#f59e0b' },
+                  ].map(m => (
+                    <div key={m.label} className="flex items-center justify-between py-1" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span className="text-xs" style={{ color: 'rgba(232,236,244,0.45)', fontSize: '11.5px' }}>{m.label}</span>
+                      <span className="text-xs font-bold metric-number" style={{ color: m.color }}>{m.value}</span>
                     </div>
                   ))}
                 </div>
               </div>
+
               <div className="glass-card p-5">
                 <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>ISCF Score Breakdown</h3>
                 <div className="space-y-3">
-                  {scoreBreakdown.map(item => (
+                  {(factorBreakdown ?? []).map(item => (
                     <ScoreBar key={item.category} label={item.category} score={item.score} maxScore={item.weight} color={item.color} />
                   ))}
                 </div>
@@ -380,16 +407,25 @@ export default function CompanyPage({ params }: PageProps) {
               </div>
             </div>
             <div className="glass-card p-6">
-              <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Historical Profit Growth</h3>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={revenueData} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                  <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="profit" name="Net Profit" fill="#d4a853" radius={[4,4,0,0]} opacity={0.85} />
-                </BarChart>
-              </ResponsiveContainer>
+              <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>
+                Historical Profit Growth
+                <span className="ml-2 text-xs font-normal" style={{ color: 'rgba(232,236,244,0.35)' }}>₹Cr</span>
+              </h3>
+              {incomeHistory.length > 0 ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={incomeHistory} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                    <XAxis dataKey="year" tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? `${Math.round(v/1000)}K` : String(v)} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="profit" name="Net Profit" fill="#d4a853" radius={[4,4,0,0]} opacity={0.85} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[240px]" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '12px' }}>
+                  Historical data unavailable
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -451,7 +487,7 @@ export default function CompanyPage({ params }: PageProps) {
             <div className="glass-card p-6">
               <h3 className="font-bold text-sm mb-5" style={{ color: '#e8ecf4' }}>Competitive Moat Radar</h3>
               <ResponsiveContainer width="100%" height={280}>
-                <RadarChart data={moatRadarData}>
+                <RadarChart data={moatRadar}>
                   <PolarGrid stroke="rgba(255,255,255,0.06)" />
                   <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(232,236,244,0.45)', fontSize: 11 }} />
                   <Radar name="Moat" dataKey="score" stroke="#d4a853" fill="#d4a853" fillOpacity={0.12} strokeWidth={2} />

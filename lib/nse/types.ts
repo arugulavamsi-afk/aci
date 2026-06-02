@@ -41,6 +41,13 @@ export interface LiveQuote {
   volume: number;
 }
 
+export interface IncomeHistoryItem {
+  year: string;
+  revenue: number; // Crores
+  profit: number;  // Crores
+  eps: number | null;
+}
+
 // Used only by the individual company detail page (/api/nse/stock/[symbol])
 export interface StockFundamentals {
   roe: number | null;
@@ -53,4 +60,5 @@ export interface StockFundamentals {
   evEbitda: number | null;
   description: string;
   city: string;
+  incomeHistory: IncomeHistoryItem[];
 }
