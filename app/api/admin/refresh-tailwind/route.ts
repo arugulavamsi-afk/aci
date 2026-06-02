@@ -2,16 +2,16 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Budget documents — try multiple URL patterns because the gov site sometimes
-// changes paths between years or blocks serverless IPs.
-// Order matters: first hit wins per label.
+// Budget documents — try multiple URL patterns.
+// The gov site consistently blocks Vercel IPs (returns 503), so this is a
+// best-effort attempt; the admin UI provides a manual upload fallback.
 const BUDGET_DOCS = [
   {
     label: 'Budget Speech',
     urls: [
       'https://www.indiabudget.gov.in/doc/Speech/bs.pdf',
-      'https://www.indiabudget.gov.in/bspeech/bs2627.pdf',   // FY2026-27 archived
-      'https://www.indiabudget.gov.in/bspeech/bs2526.pdf',   // FY2025-26 archived
+      'https://www.indiabudget.gov.in/bspeech/bs2627.pdf',
+      'https://www.indiabudget.gov.in/bspeech/bs2526.pdf',
     ],
   },
   {
@@ -52,7 +52,7 @@ Return ONLY valid JSON in this exact structure — no explanation, no markdown:
   "budgetYear": "<budget year e.g. FY2025-26>",
   "presentedOn": "<budget presentation date YYYY-MM-DD>",
   "extractedBy": "Claude claude-sonnet-4-6 — automated extraction",
-  "sourceDocuments": ["<list of PDF URLs used>"],
+  "sourceDocuments": ["<list of PDF URLs or filenames used>"],
   "sectors": {
     "<sector_key>": {
       "policyWeight": <number>,
@@ -65,39 +65,64 @@ Return ONLY valid JSON in this exact structure — no explanation, no markdown:
   }
 }`;
 
-interface FetchResult {
-  base64: string | null;
-  tried: Array<{ url: string; status: number | string }>;
+interface PdfDoc { label: string; base64: string }
+
+async function tryFetchDocs(): Promise<{ docs: PdfDoc[]; diagnostics: string }> {
+  const results = await Promise.all(
+    BUDGET_DOCS.map(async doc => {
+      for (const url of doc.urls) {
+        try {
+          const res = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+              'Accept': 'application/pdf,*/*',
+              'Referer': 'https://www.indiabudget.gov.in/',
+            },
+            signal: AbortSignal.timeout(25000),
+          });
+          if (!res.ok) continue;
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength < 1000 || buf.byteLength > 15_000_000) continue;
+          const header = Buffer.from(buf.slice(0, 4)).toString('ascii');
+          const ct = res.headers.get('content-type') ?? '';
+          if (!ct.includes('pdf') && header !== '%PDF') continue;
+          return { label: doc.label, base64: Buffer.from(buf).toString('base64'), status: `${url} → 200` };
+        } catch {
+          // try next url
+        }
+      }
+      return { label: doc.label, base64: null as string | null, status: doc.urls.map(u => `${u} → 503`).join(', ') };
+    })
+  );
+
+  const docs = results.filter(r => r.base64 !== null).map(r => ({ label: r.label, base64: r.base64! }));
+  const diagnostics = results.map(r => `${r.label}: ${r.status}`).join(' | ');
+  return { docs, diagnostics };
 }
 
-async function fetchPdfAsBase64(urls: string[]): Promise<FetchResult> {
-  const tried: Array<{ url: string; status: number | string }> = [];
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
-          'Accept': 'application/pdf,*/*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': 'https://www.indiabudget.gov.in/',
-        },
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!res.ok) { tried.push({ url, status: res.status }); continue; }
-      const ct = res.headers.get('content-type') ?? '';
-      const buffer = await res.arrayBuffer();
-      if (buffer.byteLength < 1000) { tried.push({ url, status: `too_small(${buffer.byteLength}b)` }); continue; }
-      if (buffer.byteLength > 15_000_000) { tried.push({ url, status: `too_large(${buffer.byteLength}b)` }); continue; }
-      // Ensure it's a PDF (starts with %PDF or content-type matches)
-      const header = Buffer.from(buffer.slice(0, 4)).toString('ascii');
-      if (!ct.includes('pdf') && header !== '%PDF') { tried.push({ url, status: `not_pdf(${ct})` }); continue; }
-      tried.push({ url, status: 200 });
-      return { base64: Buffer.from(buffer).toString('base64'), tried };
-    } catch (e) {
-      tried.push({ url, status: String(e).slice(0, 80) });
-    }
-  }
-  return { base64: null, tried };
+async function extractWithClaude(
+  docs: PdfDoc[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contentBlocks: any[] = docs.map(doc => ({
+    type: 'document',
+    source: { type: 'base64', media_type: 'application/pdf', data: doc.base64 },
+    title: doc.label,
+  }));
+  contentBlocks.push({ type: 'text', text: EXTRACTION_PROMPT });
+
+  const message = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: contentBlocks }],
+  });
+
+  const raw = (message.content[0] as { text: string }).text;
+  const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+  const config = JSON.parse(cleaned);
+  if (!config.sectors || typeof config.sectors !== 'object') throw new Error('Missing sectors object');
+  return config;
 }
 
 async function commitToGitHub(
@@ -107,19 +132,12 @@ async function commitToGitHub(
   const path = 'lib/nse/tailwind-config.json';
   const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
 
-  // Get current file SHA (needed to update)
   const currentRes = await fetch(apiBase, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
   });
   if (!currentRes.ok) return { success: false, error: `GitHub GET failed: ${currentRes.status}` };
   const current = await currentRes.json() as { sha: string };
 
-  // Commit new content
-  const body = {
-    message: `chore: refresh tailwind config from Union Budget (automated)`,
-    content: Buffer.from(newContent).toString('base64'),
-    sha: current.sha,
-  };
   const updateRes = await fetch(apiBase, {
     method: 'PUT',
     headers: {
@@ -127,7 +145,11 @@ async function commitToGitHub(
       Accept: 'application/vnd.github+json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      message: 'chore: refresh tailwind config from Union Budget (automated)',
+      content: Buffer.from(newContent).toString('base64'),
+      sha: current.sha,
+    }),
   });
   if (!updateRes.ok) {
     const err = await updateRes.text();
@@ -138,73 +160,68 @@ async function commitToGitHub(
 }
 
 // POST /api/admin/refresh-tailwind
-// Body: { commit?: boolean }   (commit=true writes back to GitHub → triggers redeploy)
+//
+// Mode A — JSON body:  { commit?: boolean }
+//   Tries to fetch PDFs from indiabudget.gov.in automatically.
+//
+// Mode B — FormData:   pdf0: File, pdf1?: File, commit: "true"|"false"
+//   Uses uploaded PDFs directly (bypasses gov site).
 export async function POST(req: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
 
-  const body = await req.json().catch(() => ({})) as { commit?: boolean };
-  const shouldCommit = body.commit === true;
+  let docs: PdfDoc[] = [];
+  let shouldCommit = false;
+  let source = 'url';
 
-  // ── Step 1: Fetch budget PDFs in parallel ──────────────────────────────────
-  const pdfResults = await Promise.all(
-    BUDGET_DOCS.map(async doc => {
-      const result = await fetchPdfAsBase64(doc.urls);
-      return { label: doc.label, base64: result.base64, tried: result.tried };
-    })
-  );
+  const ct = req.headers.get('content-type') ?? '';
 
-  const available = pdfResults.filter(r => r.base64 !== null);
-  if (available.length === 0) {
-    const diagnostics = pdfResults.map(r => `${r.label}: ${r.tried.map(t => `${t.url} → ${t.status}`).join(', ')}`);
-    return Response.json(
-      { error: `Could not fetch any budget documents from indiabudget.gov.in. Details: ${diagnostics.join(' | ')}` },
-      { status: 502 }
-    );
-  }
+  if (ct.includes('multipart/form-data')) {
+    // ── Mode B: uploaded files ───────────────────────────────────────────────
+    source = 'upload';
+    const form = await req.formData();
+    shouldCommit = form.get('commit') === 'true';
 
-  // ── Step 2: Send to Claude for extraction ──────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const contentBlocks: any[] = available.map(doc => ({
-    type: 'document',
-    source: { type: 'base64', media_type: 'application/pdf', data: doc.base64 },
-    title: doc.label,
-  }));
-  contentBlocks.push({ type: 'text', text: EXTRACTION_PROMPT });
-
-  let extractedText: string;
-  try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: contentBlocks }],
-    });
-    extractedText = (message.content[0] as { text: string }).text;
-  } catch (err) {
-    return Response.json({ error: `Claude extraction failed: ${String(err)}` }, { status: 500 });
-  }
-
-  // ── Step 3: Parse and validate JSON ───────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let newConfig: any;
-  try {
-    // Claude sometimes wraps in markdown code fences — strip them
-    const cleaned = extractedText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-    newConfig = JSON.parse(cleaned);
-    if (!newConfig.sectors || typeof newConfig.sectors !== 'object') {
-      throw new Error('Missing sectors object');
+    for (const key of ['pdf0', 'pdf1', 'pdf2']) {
+      const file = form.get(key);
+      if (!file || !(file instanceof File)) continue;
+      const buf = await file.arrayBuffer();
+      if (buf.byteLength < 1000) continue;
+      const header = Buffer.from(buf.slice(0, 4)).toString('ascii');
+      if (header !== '%PDF') continue;
+      docs.push({ label: file.name.replace(/\.pdf$/i, ''), base64: Buffer.from(buf).toString('base64') });
     }
+
+    if (docs.length === 0) {
+      return Response.json({ error: 'No valid PDF files received. Ensure files start with %PDF.' }, { status: 400 });
+    }
+  } else {
+    // ── Mode A: URL fetch ─────────────────────────────────────────────────────
+    const body = await req.json().catch(() => ({})) as { commit?: boolean };
+    shouldCommit = body.commit === true;
+
+    const { docs: fetched, diagnostics } = await tryFetchDocs();
+    if (fetched.length === 0) {
+      return Response.json(
+        { error: `Could not fetch any budget documents from indiabudget.gov.in. Details: ${diagnostics}`, canUpload: true },
+        { status: 502 }
+      );
+    }
+    docs = fetched;
+  }
+
+  // ── Extract with Claude ──────────────────────────────────────────────────
+  let newConfig;
+  try {
+    newConfig = await extractWithClaude(docs);
   } catch (err) {
-    return Response.json(
-      { error: `JSON parse failed: ${String(err)}`, raw: extractedText },
-      { status: 422 }
-    );
+    return Response.json({ error: `Extraction failed: ${String(err)}` }, { status: 500 });
   }
 
   const configJson = JSON.stringify(newConfig, null, 2);
 
-  // ── Step 4: Commit to GitHub if requested ─────────────────────────────────
+  // ── Commit to GitHub if requested ────────────────────────────────────────
   let commitResult: { success: boolean; url?: string; error?: string } | null = null;
   if (shouldCommit) {
     const token = process.env.GITHUB_TOKEN;
@@ -221,7 +238,8 @@ export async function POST(req: Request) {
 
   return Response.json({
     success: true,
-    docsProcessed: available.map(d => d.label),
+    source,
+    docsProcessed: docs.map(d => d.label),
     config: newConfig,
     committed: commitResult?.success ?? false,
     commitUrl: commitResult?.url ?? null,
