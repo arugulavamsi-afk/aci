@@ -105,8 +105,9 @@ async function tryFetchDocs(): Promise<{ docs: PdfDoc[]; diagnostics: string }> 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function extractWithGroq(docs: PdfDoc[], apiKey: string): Promise<any> {
-  // Groq has an 8K output + 128K context limit; truncate each doc to keep total under ~100K tokens (~75K chars)
-  const perDocLimit = Math.floor(75000 / Math.max(docs.length, 1));
+  // Free-tier Groq limit: 12,000 TPM. Budget text is token-dense (~1 token per 2 chars).
+  // Target: ~7,000 input tokens for doc text → ~14,000 chars total across all docs.
+  const perDocLimit = Math.floor(14000 / Math.max(docs.length, 1));
   const docText = docs
     .map(d => `=== ${d.label} ===\n${d.text.slice(0, perDocLimit)}`)
     .join('\n\n');
@@ -121,7 +122,7 @@ async function extractWithGroq(docs: PdfDoc[], apiKey: string): Promise<any> {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 1500,
       temperature: 0.1,
       messages: [{ role: 'user', content: userMessage }],
     }),
