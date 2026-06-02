@@ -55,10 +55,11 @@ function quoteToDisplay(q: LiveQuote): DisplayStock {
 }
 
 // Stub for stocks not yet returned by Yahoo Finance
-function symbolToStub(symbol: string, name: string): DisplayStock {
+function symbolToStub(symbol: string, name: string, exchange: 'NSE' | 'BSE' = /^\d+$/.test(symbol) ? 'BSE' : 'NSE'): DisplayStock {
   const curated = curatedMap.get(symbol);
   const stub: LiveQuote = {
     symbol, name: name || curated?.name || symbol,
+    exchange,
     cmp: 0, change: 0, changePct: 0,
     marketCap: null, marketCapLabel: '—',
     pe: null, forwardPe: null, pb: null,
@@ -135,13 +136,13 @@ export default function DiscoveryPage() {
 
       // Curated stocks first, then the rest — seed ALL as stubs so count is correct immediately
       const restSymbols = symbols.filter(s => !curatedMap.has(s.symbol));
-      const allSymbols = [
-        ...curatedStocks.map(s => ({ symbol: s.ticker, name: s.name })),
+      const allSymbols: { symbol: string; name: string; exchange: 'NSE' | 'BSE' }[] = [
+        ...curatedStocks.map(s => ({ symbol: s.ticker, name: s.name, exchange: 'NSE' as const })),
         ...restSymbols,
       ];
 
       // Seed table with stub entries for every symbol right away
-      setAllStocks(allSymbols.map(s => symbolToStub(s.symbol, s.name)));
+      setAllStocks(allSymbols.map(s => symbolToStub(s.symbol, s.name, s.exchange)));
 
       const ordered = allSymbols.map(s => s.symbol);
 
