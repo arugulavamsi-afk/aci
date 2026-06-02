@@ -123,7 +123,7 @@ const BubbleDot = (props: { cx?: number; cy?: number; r?: number; payload?: Stoc
       onClick={() => { window.location.href = `/company/${payload.ticker.toLowerCase()}`; }}>
       <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.22}
         stroke={color} strokeWidth={1.8} />
-      {r >= 10 && (
+      {r >= 14 && (
         <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
           fill={color} fontSize={fontSize} fontWeight={700}
           style={{ pointerEvents: 'none', letterSpacing: '-0.3px' }}>
@@ -279,7 +279,8 @@ export default function MultiBaggerPage() {
         x:          pe != null ? Math.round(pe * 10) / 10 : 0,
         xMetric:    pe != null ? 'P/E Ratio' : 'N/A',
         y:          iscf,
-        z:          Math.max(500, Math.min(mcCr, 250000)),
+        // sqrt-compress market cap so large caps don't dwarf small ones
+        z:          Math.round(Math.sqrt(Math.max(500, Math.min(mcCr, 200000)))),
         mbScore:    computeMbScore(q),
         conviction: scoreToConviction(iscf),
         sector,
@@ -289,7 +290,9 @@ export default function MultiBaggerPage() {
     })
     .filter(Boolean) as StockPoint[];
 
-  const sorted    = [...points].sort((a, b) => b.mbScore - a.mbScore);
+  const sorted     = [...points].sort((a, b) => b.mbScore - a.mbScore);
+  // Chart shows only top 25 — full table below has everything
+  const chartPoints = sorted.slice(0, 25);
   // Multi-bagger zone: high ISCF (≥75) + low PE (≤25) = quality at fair value
   const mbZone    = points.filter(p => p.x > 0 && p.x <= 25 && p.y >= 75);
   const avgPe     = (() => {
@@ -409,19 +412,15 @@ export default function MultiBaggerPage() {
           <div>
             <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>Multi-Bagger Bubble Map</h2>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(232,236,244,0.4)' }}>
-              X = P/E Ratio · Y = ISCF Quality Score · Size = Market Cap · Color = Sector · Top-left = best multi-baggers
+              Top 25 by MB Score · X = P/E · Y = ISCF Quality · Size = Market Cap · Color = Sector
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {!loading && points.length > 0 && (() => {
-              const withPe = points.filter(p => p.xMetric === 'P/E Ratio').length;
-              const noPe   = points.filter(p => p.xMetric === 'N/A').length;
-              return (
-                <span className="text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
-                  {withPe} stocks with P/E{noPe > 0 ? ` · ${noPe} no data` : ''}
-                </span>
-              );
-            })()}
+            {!loading && sorted.length > 0 && (
+              <span className="text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
+                showing top 25 of {sorted.length} · full list below
+              </span>
+            )}
             {loading && <Loader2 size={14} className="animate-spin" style={{ color: 'rgba(232,236,244,0.3)' }} />}
           </div>
         </div>
@@ -481,12 +480,12 @@ export default function MultiBaggerPage() {
                 axisLine={{ stroke: 'rgba(255,255,255,0.06)' }} tickLine={false}
                 label={{ value: 'ISCF Quality Score', angle: -90, position: 'insideLeft', offset: 16, fill: 'rgba(232,236,244,0.2)', fontSize: 10 }}
               />
-              <ZAxis type="number" dataKey="z" range={[500, 7000]} domain={[500, 250000]} />
+              <ZAxis type="number" dataKey="z" range={[300, 2200]} domain={[22, 450]} />
               <Tooltip content={<BubbleTooltip />} cursor={false} />
               <ReferenceLine x={25} stroke="rgba(255,255,255,0.07)" strokeDasharray="6 3" />
               <ReferenceLine y={75} stroke="rgba(255,255,255,0.07)" strokeDasharray="6 3" />
-              <Scatter data={points} shape={<BubbleDot />}>
-                {points.map((p, i) => <Cell key={i} fill={p.color} />)}
+              <Scatter data={chartPoints} shape={<BubbleDot />}>
+                {chartPoints.map((p, i) => <Cell key={i} fill={p.color} />)}
               </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
