@@ -100,8 +100,8 @@ function computeMbComponents(q: LiveQuote) {
 interface StockPoint {
   ticker: string;
   name: string;
-  x: number;          // growth metric (see xMetric)
-  xMetric: string;    // what x actually is: 'Rev Growth' | 'EPS Growth' | 'Est.(ROE)'
+  x: number;          // P/E ratio (0 = not available)
+  xMetric: string;    // 'P/E Ratio' | 'N/A'
   y: number;          // ISCF score
   z: number;          // market cap Cr — drives bubble size
   mbScore: number;
@@ -266,30 +266,18 @@ export default function MultiBaggerPage() {
       const iscf = computeIscfScore(q);
       const mcCr = (q.marketCap ?? 0) / 1e7;
       const sector = q.sector ?? '';
-      // Cascade: use real growth data when available, estimate from ROE otherwise
-      // (ROE × ~45% retention ≈ sustainable growth rate — better than forcing 0)
-      let g: number;
-      let xMetric: string;
-      // Yahoo Finance often stores 0.0 (not null) when data is unavailable for Indian stocks.
-      // Treat both null AND 0 as "no data" and cascade to the next available signal.
-      const hasRG = q.revenueGrowth != null && q.revenueGrowth !== 0;
-      const hasEG = q.earningsGrowth != null && q.earningsGrowth !== 0;
-      if (hasRG) {
-        g = q.revenueGrowth!;              xMetric = 'Rev Growth';
-      } else if (hasEG) {
-        g = q.earningsGrowth!;             xMetric = 'EPS Growth';
-      } else if (q.roe != null && q.roe > 0) {
-        g = Math.round(q.roe * 0.45);      xMetric = 'Est.(ROE)';
-      } else if (q.operatingMargin != null && q.operatingMargin > 0) {
-        g = Math.round(q.operatingMargin * 0.5); xMetric = 'Est.(OPM)';
-      } else {
-        g = 0;                             xMetric = 'N/A';
-      }
+      // X-axis = P/E ratio — reliably available for all listed Indian companies.
+      // Revenue growth is not reliably returned by Yahoo Finance for NSE stocks.
+      // Lower PE (left) = value; higher PE (right) = growth premium.
+      // Multi-bagger zone: top-LEFT (high ISCF quality + low PE).
+      const pe = (q.pe != null && q.pe > 0 && q.pe < 200) ? q.pe
+               : (q.forwardPe != null && q.forwardPe > 0 && q.forwardPe < 200) ? q.forwardPe
+               : null;
       return {
         ticker,
         name:       q.name || ticker,
-        x:          Math.round(g * 10) / 10,
-        xMetric,
+        x:          pe != null ? Math.round(pe * 10) / 10 : 0,
+        xMetric:    pe != null ? 'P/E Ratio' : 'N/A',
         y:          iscf,
         z:          Math.max(500, Math.min(mcCr, 250000)),
         mbScore:    computeMbScore(q),
@@ -302,10 +290,14 @@ export default function MultiBaggerPage() {
     .filter(Boolean) as StockPoint[];
 
   const sorted    = [...points].sort((a, b) => b.mbScore - a.mbScore);
-  const mbZone    = points.filter(p => p.x >= 15 && p.y >= 75);
-  const avgGrowth = points.length > 0
-    ? Math.round(points.reduce((s, p) => s + p.x, 0) / points.length)
-    : 0;
+  // Multi-bagger zone: high ISCF (≥75) + low PE (≤25) = quality at fair value
+  const mbZone    = points.filter(p => p.x > 0 && p.x <= 25 && p.y >= 75);
+  const avgPe     = (() => {
+    const withPe = points.filter(p => p.x > 0);
+    return withPe.length > 0
+      ? Math.round(withPe.reduce((s, p) => s + p.x, 0) / withPe.length)
+      : 0;
+  })();
   const topScore  = sorted[0]?.mbScore ?? 0;
 
   const convColor = (c: string) =>
@@ -324,7 +316,7 @@ export default function MultiBaggerPage() {
           </div>
           <h1 className="text-2xl font-black" style={{ color: '#e8ecf4' }}>Potential Multi-Baggers</h1>
           <p className="text-sm mt-1" style={{ color: 'rgba(232,236,244,0.45)' }}>
-            Quality × Growth × Runway — auto-screened from{' '}
+            Quality × Value × Runway — auto-screened from{' '}
             {dbStatus === 'ok'
               ? <span style={{ color: '#10b981' }}>{dbTotal.toLocaleString()} NSE stocks</span>
               : <span>the NSE universe</span>}
@@ -398,10 +390,10 @@ export default function MultiBaggerPage() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Stocks Analyzed',    value: loading ? '…' : points.length,    color: '#2bb5d4',  sub: `${tickers.length} tickers loaded` },
-          { label: 'In Multi-Bagger Zone', value: loading ? '…' : mbZone.length,  color: '#10b981',  sub: 'ISCF ≥ 75 + Growth ≥ 15%' },
-          { label: 'Avg Revenue Growth', value: loading ? '…' : `${avgGrowth}%`,  color: '#d4a853',  sub: 'YoY across universe' },
-          { label: 'Top MB Score',       value: loading ? '…' : topScore,          color: '#8b5cf6',  sub: sorted[0]?.ticker ?? '—' },
+          { label: 'Stocks Analyzed',    value: loading ? '…' : points.length,   color: '#2bb5d4', sub: `${tickers.length} tickers loaded` },
+          { label: 'In MB Zone',         value: loading ? '…' : mbZone.length,   color: '#10b981', sub: 'ISCF ≥ 75 + PE ≤ 25' },
+          { label: 'Avg P/E Ratio',      value: loading ? '…' : `${avgPe}x`,     color: '#d4a853', sub: 'across universe' },
+          { label: 'Top MB Score',       value: loading ? '…' : topScore,         color: '#8b5cf6', sub: sorted[0]?.ticker ?? '—' },
         ].map(k => (
           <div key={k.label} className="glass-card p-5">
             <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10px' }}>{k.label}</div>
@@ -417,18 +409,16 @@ export default function MultiBaggerPage() {
           <div>
             <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>Multi-Bagger Bubble Map</h2>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(232,236,244,0.4)' }}>
-              X = Rev Growth (EPS Growth or ROE estimate as fallback) · Y = ISCF Quality · Size = Market Cap · Color = Sector
+              X = P/E Ratio · Y = ISCF Quality Score · Size = Market Cap · Color = Sector · Top-left = best multi-baggers
             </p>
           </div>
           <div className="flex items-center gap-2">
             {!loading && points.length > 0 && (() => {
-              const rv = points.filter(p => p.xMetric === 'Rev Growth').length;
-              const ep = points.filter(p => p.xMetric === 'EPS Growth').length;
-              const es = points.filter(p => p.xMetric.startsWith('Est')).length;
-              const na = points.filter(p => p.xMetric === 'N/A').length;
+              const withPe = points.filter(p => p.xMetric === 'P/E Ratio').length;
+              const noPe   = points.filter(p => p.xMetric === 'N/A').length;
               return (
                 <span className="text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
-                  x-axis: {rv > 0 ? `${rv} rev · ` : ''}{ep > 0 ? `${ep} eps · ` : ''}{es > 0 ? `${es} est · ` : ''}{na > 0 ? `${na} n/a` : ''}
+                  {withPe} stocks with P/E{noPe > 0 ? ` · ${noPe} no data` : ''}
                 </span>
               );
             })()}
@@ -450,8 +440,8 @@ export default function MultiBaggerPage() {
               ))}
               <div className="ml-auto flex items-center gap-3 text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
                 <span>← low quality</span>
-                <span style={{ color: 'rgba(16,185,129,0.5)', fontWeight: 700 }}>🚀 top-right = multi-bagger zone</span>
-                <span>low growth →</span>
+                <span style={{ color: 'rgba(16,185,129,0.5)', fontWeight: 700 }}>🚀 top-left = multi-bagger zone (quality + value)</span>
+                <span>high PE →</span>
               </div>
             </div>
           );
@@ -460,16 +450,16 @@ export default function MultiBaggerPage() {
         <div className="relative" style={{ height: 500 }}>
           {/* Quadrant labels */}
           <div className="absolute inset-0 pointer-events-none z-10" style={{ top: 10, left: 55, right: 10, bottom: 40 }}>
-            <div className="absolute top-3 right-6 text-xs font-bold" style={{ color: 'rgba(16,185,129,0.3)', fontSize: '10px', letterSpacing: '0.08em' }}>
+            <div className="absolute top-3 left-6 text-xs font-bold" style={{ color: 'rgba(16,185,129,0.35)', fontSize: '10px', letterSpacing: '0.08em' }}>
               🚀 MULTI-BAGGER ZONE
             </div>
-            <div className="absolute top-3 left-6 text-xs" style={{ color: 'rgba(212,168,83,0.25)', fontSize: '10px', letterSpacing: '0.08em' }}>
-              QUALITY COMPOUNDER
+            <div className="absolute top-3 right-6 text-xs" style={{ color: 'rgba(212,168,83,0.25)', fontSize: '10px', letterSpacing: '0.08em' }}>
+              QUALITY PREMIUM
             </div>
-            <div className="absolute bottom-6 right-6 text-xs" style={{ color: 'rgba(239,68,68,0.2)', fontSize: '10px', letterSpacing: '0.08em' }}>
-              GROWTH TRAP?
+            <div className="absolute bottom-6 left-6 text-xs" style={{ color: 'rgba(245,158,11,0.25)', fontSize: '10px', letterSpacing: '0.08em' }}>
+              VALUE TRAP?
             </div>
-            <div className="absolute bottom-6 left-6 text-xs" style={{ color: 'rgba(107,114,128,0.2)', fontSize: '10px', letterSpacing: '0.08em' }}>
+            <div className="absolute bottom-6 right-6 text-xs" style={{ color: 'rgba(107,114,128,0.2)', fontSize: '10px', letterSpacing: '0.08em' }}>
               AVOID
             </div>
           </div>
@@ -478,11 +468,11 @@ export default function MultiBaggerPage() {
             <ScatterChart margin={{ top: 20, right: 20, left: 0, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
               <XAxis
-                type="number" dataKey="x" name="Growth %"
-                domain={['auto', 'auto']}
+                type="number" dataKey="x" name="P/E Ratio"
+                domain={[0, 80]}
                 tick={{ fill: 'rgba(232,236,244,0.25)', fontSize: 10 }}
                 axisLine={{ stroke: 'rgba(255,255,255,0.06)' }} tickLine={false}
-                label={{ value: 'Growth % (rev → eps → est.)', position: 'insideBottom', offset: -10, fill: 'rgba(232,236,244,0.2)', fontSize: 10 }}
+                label={{ value: 'P/E Ratio (lower = better value →)', position: 'insideBottom', offset: -10, fill: 'rgba(232,236,244,0.2)', fontSize: 10 }}
               />
               <YAxis
                 type="number" dataKey="y" name="ISCF Score"
@@ -493,7 +483,7 @@ export default function MultiBaggerPage() {
               />
               <ZAxis type="number" dataKey="z" range={[500, 7000]} domain={[500, 250000]} />
               <Tooltip content={<BubbleTooltip />} cursor={false} />
-              <ReferenceLine x={15} stroke="rgba(255,255,255,0.07)" strokeDasharray="6 3" />
+              <ReferenceLine x={25} stroke="rgba(255,255,255,0.07)" strokeDasharray="6 3" />
               <ReferenceLine y={75} stroke="rgba(255,255,255,0.07)" strokeDasharray="6 3" />
               <Scatter data={points} shape={<BubbleDot />}>
                 {points.map((p, i) => <Cell key={i} fill={p.color} />)}
@@ -539,7 +529,7 @@ export default function MultiBaggerPage() {
                       {i === 0 && <Star size={8} fill="#d4a853" color="#d4a853" />}
                     </div>
                     <div className="text-xs" style={{ color: 'rgba(232,236,244,0.3)', fontSize: '10px' }}>
-                      ISCF {p.y} · {p.x > 0 ? '+' : ''}{p.x}%
+                      ISCF {p.y} · {p.x > 0 ? `PE ${p.x}x` : 'PE N/A'}
                     </div>
                   </div>
 
@@ -573,7 +563,7 @@ export default function MultiBaggerPage() {
                 <th className="text-left">Stock</th>
                 <th className="text-center">MB Score</th>
                 <th className="text-center">ISCF</th>
-                <th className="text-right">Rev Growth</th>
+                <th className="text-right">P/E</th>
                 <th className="text-right">Market Cap</th>
                 <th className="text-right">P/E</th>
                 <th className="text-right">ROE</th>
@@ -622,8 +612,8 @@ export default function MultiBaggerPage() {
                       <span className="font-bold metric-number" style={{ color: iscfColor }}>{p.y}</span>
                     </td>
                     <td className="text-right">
-                      <span className="font-bold metric-number" style={{ color: p.x >= 20 ? '#10b981' : p.x >= 8 ? '#f59e0b' : '#ef4444' }}>
-                        {p.x > 0 ? '+' : ''}{p.x}%
+                      <span className="font-bold metric-number" style={{ color: p.x > 0 && p.x <= 15 ? '#10b981' : p.x <= 25 ? '#f59e0b' : 'rgba(232,236,244,0.5)' }}>
+                        {p.x > 0 ? `${p.x}x` : '—'}
                       </span>
                     </td>
                     <td className="text-right">
