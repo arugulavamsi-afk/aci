@@ -1,4 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+// Using Groq — free tier, global availability, Llama 3.3 70B
+// No SDK needed — Groq is OpenAI-compatible, we use fetch + SSE streaming
+
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const MODEL = 'llama-3.3-70b-versatile';
 
 const SYSTEM_PROMPT = `You are the Aishwaryamasthu AI Copilot — an institutional-grade investment research assistant specialized in Indian equity markets.
 
@@ -22,10 +26,10 @@ Guidelines:
 - Keep responses concise but insightful — no padding`;
 
 export async function POST(req: Request) {
-  const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return Response.json(
-      { error: 'GOOGLE_GEMINI_API_KEY is not configured. Get a free key at aistudio.google.com/apikey and add it in Vercel → Settings → Environment Variables.' },
+      { error: 'GROQ_API_KEY is not configured. Get a free key at console.groq.com and add it in Vercel → Settings → Environment Variables.' },
       { status: 503 }
     );
   }
@@ -37,34 +41,56 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
-    systemInstruction: SYSTEM_PROMPT,
-  });
-
-  // Convert message history for Gemini format.
-  // Gemini uses 'model' instead of 'assistant' and requires history to START with a 'user' turn.
-  // Strip any leading assistant/model messages (e.g. the welcome message).
-  const rawHistory = messages.slice(0, -1).map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
-  const firstUserIdx = rawHistory.findIndex(m => m.role === 'user');
-  const history = firstUserIdx >= 0 ? rawHistory.slice(firstUserIdx) : [];
-  const lastMessage = messages[messages.length - 1];
+  const groqMessages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...messages,
+  ];
 
   const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
     async start(controller) {
       try {
-        const chat = model.startChat({ history });
-        const result = await chat.sendMessageStream(lastMessage.content);
+        const res = await fetch(GROQ_API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ model: MODEL, messages: groqMessages, stream: true }),
+        });
 
-        for await (const chunk of result.stream) {
-          const text = chunk.text();
-          if (text) controller.enqueue(encoder.encode(text));
+        if (!res.ok || !res.body) {
+          const errText = await res.text();
+          controller.enqueue(encoder.encode(`\n\n**Error from Groq:** ${res.status} — ${errText}`));
+          controller.close();
+          return;
+        }
+
+        // Parse SSE stream — each line is "data: {...}" or "data: [DONE]"
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? ''; // keep incomplete last line
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data: ')) continue;
+            const data = trimmed.slice(6);
+            if (data === '[DONE]') { controller.close(); return; }
+            try {
+              const chunk = JSON.parse(data);
+              const text: string = chunk.choices?.[0]?.delta?.content ?? '';
+              if (text) controller.enqueue(encoder.encode(text));
+            } catch { /* skip malformed chunk */ }
+          }
         }
         controller.close();
       } catch (err) {
