@@ -7,10 +7,12 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
-import { TrendingUp, Zap, Target, Search, Plus, Loader2, X, ChevronRight, Star } from 'lucide-react';
+import { Zap, Search, Plus, Loader2, X, ChevronRight, Star, Database, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import type { LiveQuote } from '@/lib/nse/types';
 import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
+
+type DbStatus = 'loading' | 'ok' | 'not_configured' | 'empty' | 'error';
 
 // ── Multi-Bagger Potential Score (0–100) ─────────────────────────────────────
 // Quality  40%  — ISCF score (7-factor compounder model)
@@ -123,7 +125,9 @@ const BubbleTooltip = ({ active, payload }: { active?: boolean; payload?: { payl
 export default function MultiBaggerPage() {
   const [quotes, setQuotes]       = useState<Map<string, LiveQuote>>(new Map());
   const [loading, setLoading]     = useState(true);
-  const [tickers, setTickers]     = useState<string[]>(curatedStocks.map(s => s.ticker));
+  const [tickers, setTickers]     = useState<string[]>([]);
+  const [dbStatus, setDbStatus]   = useState<DbStatus>('loading');
+  const [dbTotal, setDbTotal]     = useState(0);
 
   // Add-ticker state
   const [showAdd, setShowAdd]     = useState(false);
@@ -132,16 +136,54 @@ export default function MultiBaggerPage() {
   const [addError, setAddError]   = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Load from DB screener, fall back to curated stocks if DB not configured
   useEffect(() => {
-    if (tickers.length === 0) { setLoading(false); return; }
-    setLoading(true);
-    fetch(`/api/nse/quotes?symbols=${tickers.join(',')}`)
-      .then(r => r.json())
-      .then(({ quotes: q }: { quotes: LiveQuote[] }) => {
-        setQuotes(new Map((q ?? []).map(item => [item.symbol, item])));
-      })
-      .finally(() => setLoading(false));
-  }, [tickers]);
+    async function load() {
+      setLoading(true);
+      try {
+        const res  = await fetch('/api/nse/screener');
+        const data = await res.json() as {
+          dbConfigured: boolean; quotes: LiveQuote[]; total: number; error?: string;
+        };
+
+        if (data.dbConfigured && data.quotes.length > 0) {
+          setDbStatus('ok');
+          setDbTotal(data.total);
+          setQuotes(new Map(data.quotes.map(q => [q.symbol, q])));
+          setTickers(data.quotes.map(q => q.symbol));
+        } else if (!data.dbConfigured) {
+          // DB not set up — fall back to curated stocks
+          setDbStatus('not_configured');
+          const r2  = await fetch(`/api/nse/quotes?symbols=${curatedStocks.map(s => s.ticker).join(',')}`);
+          const d2  = await r2.json() as { quotes: LiveQuote[] };
+          const q   = d2.quotes ?? [];
+          setQuotes(new Map(q.map(item => [item.symbol, item])));
+          setTickers(q.map(item => item.symbol));
+        } else {
+          // DB configured but empty (not yet populated)
+          setDbStatus('empty');
+          const r2  = await fetch(`/api/nse/quotes?symbols=${curatedStocks.map(s => s.ticker).join(',')}`);
+          const d2  = await r2.json() as { quotes: LiveQuote[] };
+          const q   = d2.quotes ?? [];
+          setQuotes(new Map(q.map(item => [item.symbol, item])));
+          setTickers(q.map(item => item.symbol));
+        }
+      } catch {
+        setDbStatus('error');
+        // Still try curated stocks
+        try {
+          const r2 = await fetch(`/api/nse/quotes?symbols=${curatedStocks.map(s => s.ticker).join(',')}`);
+          const d2 = await r2.json() as { quotes: LiveQuote[] };
+          const q  = d2.quotes ?? [];
+          setQuotes(new Map(q.map(item => [item.symbol, item])));
+          setTickers(q.map(item => item.symbol));
+        } catch { /* nothing */ }
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   useEffect(() => {
     if (showAdd) setTimeout(() => inputRef.current?.focus(), 50);
@@ -211,7 +253,11 @@ export default function MultiBaggerPage() {
           </div>
           <h1 className="text-2xl font-black" style={{ color: '#e8ecf4' }}>Potential Multi-Baggers</h1>
           <p className="text-sm mt-1" style={{ color: 'rgba(232,236,244,0.45)' }}>
-            Quality × Growth × Runway — stocks with the highest 5–10x compounding potential
+            Quality × Growth × Runway — auto-screened from{' '}
+            {dbStatus === 'ok'
+              ? <span style={{ color: '#10b981' }}>{dbTotal.toLocaleString()} NSE stocks</span>
+              : <span>the NSE universe</span>}
+            {' '}for the highest 5–10x compounding potential
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -224,6 +270,39 @@ export default function MultiBaggerPage() {
           </Link>
         </div>
       </div>
+
+      {/* DB status banner */}
+      {dbStatus === 'ok' && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
+          <Database size={13} style={{ color: '#10b981' }} />
+          <span className="text-xs" style={{ color: 'rgba(232,236,244,0.6)' }}>
+            Screening <strong style={{ color: '#10b981' }}>{dbTotal.toLocaleString()} NSE stocks</strong> from the live database — ranked by Multi-Bagger Potential Score
+          </span>
+        </div>
+      )}
+      {dbStatus === 'not_configured' && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
+          <AlertTriangle size={13} style={{ color: '#f59e0b' }} />
+          <span className="text-xs" style={{ color: 'rgba(232,236,244,0.6)' }}>
+            Showing <strong style={{ color: '#f59e0b' }}>10 curated stocks</strong> — database not set up yet.{' '}
+            <Link href="/admin/stocks" className="underline" style={{ color: '#f59e0b' }}>Set up Postgres</Link>
+            {' '}to screen the full NSE universe of 5,000+ stocks.
+          </span>
+        </div>
+      )}
+      {dbStatus === 'empty' && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
+          <AlertTriangle size={13} style={{ color: '#f59e0b' }} />
+          <span className="text-xs" style={{ color: 'rgba(232,236,244,0.6)' }}>
+            Database is configured but not yet populated.{' '}
+            <Link href="/admin/stocks" className="underline" style={{ color: '#f59e0b' }}>Run the stock refresh</Link>
+            {' '}to populate it, then come back for the full NSE screen.
+          </span>
+        </div>
+      )}
 
       {/* Add ticker panel */}
       {showAdd && (
