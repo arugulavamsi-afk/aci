@@ -22,7 +22,7 @@ export default function Dashboard() {
     const symbols = curatedStocks.map(s => s.ticker).join(',');
     Promise.all([
       fetch(`/api/nse/quotes?symbols=${symbols}`).then(r => r.json()),
-      fetch('/api/nse/symbols').then(r => r.json()),
+      fetch('/api/symbols').then(r => r.json()),
     ]).then(([quotesData, symbolsData]) => {
       setQuotes(quotesData.quotes ?? []);
       setTotalNse(symbolsData.count ?? 0);
@@ -89,7 +89,7 @@ export default function Dashboard() {
         <StatCard
           label="High Conviction"
           value={loaded ? highConviction : '—'}
-          sub="Score ≥ 78 threshold"
+          sub="ISCF Score ≥ 78"
           icon={<Target size={14} />}
           color="#10b981"
           trend={6}
@@ -158,7 +158,7 @@ export default function Dashboard() {
               <span className="font-bold text-sm" style={{ color: '#d4a853' }}>AI Insight</span>
             </div>
             <p className="text-sm leading-relaxed" style={{ color: 'rgba(232,236,244,0.65)', fontSize: '12.5px' }}>
-              <strong style={{ color: '#e8ecf4' }}>Power infrastructure</strong> stocks showing exceptional momentum. PFC, RVNL, and Cochin Shipyard form a high-conviction cluster aligned with India&apos;s ₹18.8L Cr energy transition capex.
+              <strong style={{ color: '#e8ecf4' }}>Pharma & Healthcare</strong> has the highest budget policy weight (18/20) in FY26-27, with very_strong tailwind classification. Combined with Power (15/20) and PLI Manufacturing (15/20), these three sectors form the core ISCF allocation thesis.
             </p>
             <Link href="/copilot" className="inline-flex items-center gap-1 mt-3 text-xs font-semibold" style={{ color: '#d4a853' }}>
               Deep dive with AI <TrendingUp size={11} />
@@ -169,11 +169,11 @@ export default function Dashboard() {
             <h3 className="font-bold text-sm mb-4" style={{ color: '#e8ecf4' }}>Score Categories</h3>
             <div className="space-y-2.5">
               {[
-                { range: '90–100', label: 'Rare Opportunity', color: '#d4a853' },
-                { range: '80–89', label: 'Strong Candidate', color: '#10b981' },
-                { range: '70–79', label: 'Watchlist', color: '#0c7b93' },
-                { range: '60–69', label: 'Speculative', color: '#f59e0b' },
-                { range: '< 60', label: 'Avoid', color: '#ef4444' },
+                { range: '90–100', label: 'Rare Compounder', color: '#d4a853' },
+                { range: '78–89', label: 'High Conviction', color: '#10b981' },
+                { range: '62–77', label: 'Medium Conviction', color: '#0c7b93' },
+                { range: '50–61', label: 'Watch & Wait', color: '#f59e0b' },
+                { range: '< 50',  label: 'Avoid', color: '#ef4444' },
               ].map(item => (
                 <div key={item.range} className="flex items-center gap-3">
                   <div className="w-8 h-5 rounded-md flex items-center justify-center text-xs font-black"
