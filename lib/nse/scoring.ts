@@ -1,70 +1,16 @@
 import type { LiveQuote } from './types';
+import { getSectorConfig, SECTOR_TO_CONFIG } from './tailwindConfig';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTOR 1 — STRUCTURAL TAILWIND  (max 25 pts)
 //
 // Two-part score:
-//   A. Policy weight (0–20): How much has the Govt committed in ₹ and policy?
+//   A. Policy weight (0–20): Read from tailwind-config.json, sourced from
+//      Union Budget PDFs via Claude extraction (run /admin/tailwind to refresh)
 //   B. Materialisation bonus (0–5): Is THIS company actually capturing the benefit?
-//      → Measured by revenue/earnings growth momentum.
+//      → Revenue/earnings growth proves the tailwind is flowing to the P&L
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Ordered highest-to-lowest so the first matching industry wins.
-// Sources: Union Budgets FY25-26, NIP, Atmanirbhar Bharat documents.
-const INDUSTRY_POLICY_WEIGHT: [RegExp, number, string][] = [
-  // Defense & Security — ₹6.2L Cr budget, 25% local procurement mandate (DPP 2020)
-  [/defense|defence|aerospace|naval|ordnance|military/i, 20, 'defense'],
-  // Power & Energy Transition — ₹18.8L Cr capex, 500 GW RE by 2030
-  [/power\s*(finance|sector|grid|transmission)|renewable|solar|wind\s*energy|green\s*hydrogen/i, 20, 'power'],
-  // Railways — ₹2.4L Cr annual capex, Vande Bharat, DFC
-  [/railway|rail\s*(infra|vikas)|metro\s*rail|dedicated\s*freight/i, 19, 'railways'],
-  // Semiconductor & Electronics — ₹76K Cr PLI, India Semiconductor Mission
-  [/semiconductor|electronics\s*mfg|pcb|display\s*fab/i, 19, 'semiconductor'],
-  // Water Infrastructure — ₹3.6L Cr Jal Jeevan Mission + AMRUT 2.0
-  [/water\s*(treat|infra|supply|utility)|effluent\s*treat|desalin/i, 18, 'water'],
-  // Roads & Ports — ₹111L Cr NIP, Gati Shakti
-  [/road|highway|port\s*infra|logistics\s*infra|epc.*infra|infra.*construct/i, 18, 'infra'],
-  // Shipbuilding — Maritime India Vision 2030, ₹24K Cr
-  [/shipbuild|shipyard|marine\s*(eng|infra)/i, 18, 'shipbuilding'],
-  // EV & New Mobility — FAME III, EV30@30
-  [/electric\s*vehicle|ev\s*(component|battery|charging)|battery\s*(cell|pack)/i, 17, 'ev'],
-  // Pharma & Healthcare — ₹15L Cr market, PLI scheme, API self-sufficiency
-  [/pharma|drug\s*mfg|api\s*mfg|hospital|medical\s*device/i, 17, 'pharma'],
-  // Drone & Space — PLI drones, ISRO commercialisation
-  [/drone|uav|space\s*(tech|satellite)|satellite/i, 17, 'drone_space'],
-  // Digital & IT Services — GCC boom, AI Mission, ₹14,903 Cr Digital India
-  [/information\s*tech|software|it\s*service|cloud|cybersec|data\s*(center|centre)|artificial\s*intel/i, 16, 'digital'],
-  // Specialty Chemicals — China+1 shift
-  [/specialty\s*chem|agrochemical|fine\s*chem|pigment|dye|fluorochem/i, 15, 'spec_chem'],
-  // Financial Services — PMJDY, credit expansion, insurance penetration
-  [/bank|nbfc|insurance|microfinance|housing\s*financ|asset\s*manag/i, 15, 'finance'],
-  // Capital Goods & Heavy Engineering — Make in India, PLI
-  [/capital\s*goods|heavy\s*eng|industrial\s*mach|turbine|boiler|compressor/i, 15, 'capgoods'],
-  // PLI Manufacturing (textiles, auto, food processing)
-  [/auto\s*(comp|mfg)|textile|food\s*(process|mfg)|consumer\s*electric/i, 14, 'pli_mfg'],
-  // Agriculture & Agri-tech — PM Kisan, food security
-  [/agri|fertiliz|pesticide|irrigation|seed/i, 13, 'agri'],
-  // Real Estate — PMAY, Smart Cities (execution-dependent, less reliable)
-  [/real\s*estate|housing\s*develop|construction\s*dev/i, 11, 'realty'],
-];
-
-// Sector-level fallback when no industry keyword matches
-const SECTOR_POLICY_WEIGHT: Record<string, number> = {
-  'Industrials': 16,
-  'Technology': 16,
-  'Healthcare': 15,
-  'Financial Services': 14,
-  'Energy': 14,
-  'Utilities': 13,
-  'Basic Materials': 12,
-  'Consumer Cyclical': 12,
-  'Consumer Defensive': 11,
-  'Communication Services': 11,
-  'Real Estate': 10,
-};
-
-// Materialisation bonus: is this company ACTUALLY benefiting?
-// Revenue/earnings growth proves the tailwind is playing out for THIS stock.
 function materialisationBonus(
   revenueGrowth: number | null,
   earningsGrowth: number | null
@@ -75,17 +21,16 @@ function materialisationBonus(
   if (g >= 15)  return 4;
   if (g >= 8)   return 3;
   if (g >= 0)   return 2;
-  return 0;                // negative growth = tailwind not materialising yet
+  return 0;                // negative growth = tailwind not materialising
 }
 
 function tailwindScore(
   sector: string, industry: string,
   revenueGrowth: number | null, earningsGrowth: number | null
 ): number {
-  let policyWeight = SECTOR_POLICY_WEIGHT[sector] ?? 9;
-  for (const [re, weight] of INDUSTRY_POLICY_WEIGHT) {
-    if (re.test(industry)) { policyWeight = weight; break; }
-  }
+  const cfg = getSectorConfig(sector, industry);
+  const policyWeight = cfg?.policyWeight
+    ?? (SECTOR_TO_CONFIG[sector] ? 12 : 9); // use sector fallback or unknown
   return Math.min(25, policyWeight + materialisationBonus(revenueGrowth, earningsGrowth));
 }
 

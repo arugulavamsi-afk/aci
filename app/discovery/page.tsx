@@ -11,6 +11,7 @@ import Link from 'next/link';
 import ScoreGauge from '@/components/ui/ScoreGauge';
 import type { LiveQuote, StockFundamentals } from '@/lib/nse/types';
 import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
+import { tailwindConfig } from '@/lib/nse/tailwindConfig';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -118,7 +119,6 @@ export default function DiscoveryPage() {
       setLoadingSymbols(false);
 
       // Curated stocks first, then the rest — seed ALL as stubs so count is correct immediately
-      const curatedSymbols = curatedStocks.map(s => s.ticker);
       const restSymbols = symbols.filter(s => !curatedMap.has(s.symbol));
       const allSymbols = [
         ...curatedStocks.map(s => ({ symbol: s.ticker, name: s.name })),
@@ -241,6 +241,14 @@ export default function DiscoveryPage() {
                 ? `${allStocks.length.toLocaleString()} NSE stocks · ${filtered.length.toLocaleString()} matching`
                 : 'Loading NSE universe…'}
             </p>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(212,168,83,0.1)', color: '#d4a853', border: '1px solid rgba(212,168,83,0.2)', fontSize: '10.5px' }}>
+                Tailwind: {tailwindConfig.budgetYear}
+              </span>
+              <span className="text-xs" style={{ color: 'rgba(232,236,244,0.25)', fontSize: '10px' }}>
+                Updated {tailwindConfig.lastUpdated} · <a href="/admin/tailwind" className="underline" style={{ color: 'rgba(212,168,83,0.5)' }}>Refresh</a>
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {isLoading && (

@@ -1,0 +1,148 @@
+{
+  "lastUpdated": "2025-02-01",
+  "budgetYear": "FY2025-26",
+  "presentedOn": "2025-02-01",
+  "extractedBy": "Seeded manually — run /admin/tailwind to refresh from latest Budget",
+  "sourceDocuments": [
+    "https://www.indiabudget.gov.in/doc/Speech/bs.pdf",
+    "https://www.indiabudget.gov.in/doc/bh/bagall.pdf"
+  ],
+  "sectors": {
+    "defense": {
+      "policyWeight": 20,
+      "allocationCrore": 621541,
+      "yoyChangePct": 8.5,
+      "tailwindStrength": "very_strong",
+      "schemes": ["Atmanirbhar Bharat Defence", "DPP 2020", "iDEX", "Make in India Defence"],
+      "keyHighlight": "25% domestic procurement mandate; ₹6.21L Cr budget; indigenisation list of 400+ items"
+    },
+    "power_renewable": {
+      "policyWeight": 20,
+      "allocationCrore": 1880000,
+      "yoyChangePct": 12.3,
+      "tailwindStrength": "very_strong",
+      "schemes": ["National Green Hydrogen Mission", "PM Surya Ghar", "ISTS waiver", "KUSUM"],
+      "keyHighlight": "500 GW RE by 2030; ₹18.8L Cr energy capex cycle; rooftop solar push"
+    },
+    "railways": {
+      "policyWeight": 19,
+      "allocationCrore": 240000,
+      "yoyChangePct": 5.8,
+      "tailwindStrength": "very_strong",
+      "schemes": ["Vande Bharat", "Dedicated Freight Corridor", "Kavach", "PM Gati Shakti Rail"],
+      "keyHighlight": "₹2.4L Cr annual capex; 100% electrification complete; 400 Vande Bharat trains"
+    },
+    "semiconductor": {
+      "policyWeight": 19,
+      "allocationCrore": 76000,
+      "yoyChangePct": 40.0,
+      "tailwindStrength": "very_strong",
+      "schemes": ["India Semiconductor Mission", "Semicon India PLI", "SPECS"],
+      "keyHighlight": "₹76K Cr PLI; Micron, Tata, CG Power fabs approved; design-linked incentive"
+    },
+    "water_infra": {
+      "policyWeight": 18,
+      "allocationCrore": 360000,
+      "yoyChangePct": 7.2,
+      "tailwindStrength": "strong",
+      "schemes": ["Jal Jeevan Mission", "AMRUT 2.0", "Namami Gange", "Atal Mission"],
+      "keyHighlight": "₹3.6L Cr JJM; 100% rural tap water coverage target; industrial water treatment push"
+    },
+    "roads_ports_logistics": {
+      "policyWeight": 18,
+      "allocationCrore": 1110000,
+      "yoyChangePct": 9.1,
+      "tailwindStrength": "strong",
+      "schemes": ["PM Gati Shakti", "Bharatmala Phase 2", "Sagarmala", "UDAN"],
+      "keyHighlight": "₹111L Cr NIP over 7 years; ₹2.78L Cr NHAI capex; multimodal logistics parks"
+    },
+    "shipbuilding": {
+      "policyWeight": 18,
+      "allocationCrore": 24000,
+      "yoyChangePct": 15.0,
+      "tailwindStrength": "strong",
+      "schemes": ["Maritime India Vision 2030", "Shipbuilding Financial Assistance Policy"],
+      "keyHighlight": "₹24K Cr Maritime Vision; defence vessel indigenisation; green ship push"
+    },
+    "ev_mobility": {
+      "policyWeight": 17,
+      "allocationCrore": 26000,
+      "yoyChangePct": 22.0,
+      "tailwindStrength": "strong",
+      "schemes": ["FAME III", "PLI Auto", "PM e-DRIVE", "Battery Swapping Policy"],
+      "keyHighlight": "FAME III ₹26K Cr; EV30@30 target; charging infra mandate for cities"
+    },
+    "pharma_healthcare": {
+      "policyWeight": 17,
+      "allocationCrore": 89287,
+      "yoyChangePct": 10.5,
+      "tailwindStrength": "strong",
+      "schemes": ["PLI Pharma", "PLI Medical Devices", "Bulk Drug Parks", "Ayushman Bharat PM-JAY"],
+      "keyHighlight": "API self-sufficiency push; 3 bulk drug parks; medical devices PLI ₹3,420 Cr"
+    },
+    "drone_space": {
+      "policyWeight": 17,
+      "allocationCrore": 10000,
+      "yoyChangePct": 35.0,
+      "tailwindStrength": "strong",
+      "schemes": ["PLI Drones", "Space Activities Bill", "IN-SPACe", "BharatDrone Mahotsav"],
+      "keyHighlight": "Drone PLI ₹120 Cr; ISRO commercialisation via NewSpace India; 4 space startups funded"
+    },
+    "digital_it": {
+      "policyWeight": 16,
+      "allocationCrore": 149300,
+      "yoyChangePct": 8.8,
+      "tailwindStrength": "strong",
+      "schemes": ["Digital India", "India AI Mission", "GCC Policy", "Semicon India", "BharatNet"],
+      "keyHighlight": "₹10K Cr AI Mission; GCC policy 2024; 1,700+ GCCs, ₹5.1L Cr revenue target by 2030"
+    },
+    "specialty_chemicals": {
+      "policyWeight": 15,
+      "allocationCrore": 18000,
+      "yoyChangePct": 4.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["PLI Specialty Chemicals (proposed)", "Petroleum Chemicals & Petrochemicals Policy"],
+      "keyHighlight": "China+1 beneficiary; anti-dumping duties on Chinese imports; export incentives"
+    },
+    "financial_services": {
+      "policyWeight": 15,
+      "allocationCrore": 44000,
+      "yoyChangePct": 6.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["PMJDY", "PM Mudra Yojana", "Jan Suraksha", "GIFT City incentives"],
+      "keyHighlight": "Credit-to-GDP gap closing; insurance penetration at 4% vs 12% global avg"
+    },
+    "capital_goods": {
+      "policyWeight": 15,
+      "allocationCrore": 63550,
+      "yoyChangePct": 7.5,
+      "tailwindStrength": "moderate",
+      "schemes": ["PLI Capital Goods", "PM Mitra Textile Parks", "National Industrial Corridor"],
+      "keyHighlight": "₹6,355 Cr PLI capital goods; 11 industrial corridors; DPIIT Make in India push"
+    },
+    "pli_manufacturing": {
+      "policyWeight": 14,
+      "allocationCrore": 197000,
+      "yoyChangePct": 5.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["PLI Auto", "PLI Textiles", "PLI Food Processing", "PLI White Goods"],
+      "keyHighlight": "14 sector PLI ₹1.97L Cr; auto PLI ₹26K Cr; ACC battery PLI ₹18.1K Cr"
+    },
+    "agri_food": {
+      "policyWeight": 13,
+      "allocationCrore": 134000,
+      "yoyChangePct": 4.8,
+      "tailwindStrength": "moderate",
+      "schemes": ["PM Kisan Sampada", "MIDH", "PMFBY", "Agriculture Infrastructure Fund"],
+      "keyHighlight": "Food processing PLI ₹10.9K Cr; agri infra fund ₹1L Cr; FPO formation"
+    },
+    "real_estate": {
+      "policyWeight": 11,
+      "allocationCrore": 80000,
+      "yoyChangePct": 3.5,
+      "tailwindStrength": "weak",
+      "schemes": ["PMAY Urban 2.0", "Smart Cities Mission", "SWAMIH Fund"],
+      "keyHighlight": "PMAY 2.0 ₹2.3L Cr for urban housing; SWAMIH ₹15K Cr stalled projects"
+    }
+  }
+}
