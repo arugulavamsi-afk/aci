@@ -108,9 +108,8 @@ interface StockPoint {
 // ── Treemap cell — rendered for every rectangle in the Finviz-style map ──────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TreemapCell = (props: any) => {
-  const { x, y, width, height, ticker, mbScore, color, depth } = props;
-  if (!width || !height || width < 4 || height < 4) return null;
-  if (depth !== 1) return null; // only render leaf nodes
+  const { x, y, width, height, ticker, mbScore, color } = props;
+  if (!width || !height || width < 4 || height < 4 || !ticker) return null;
 
   const tier      = mbTier(mbScore ?? 0);
   const minDim    = Math.min(width, height);
@@ -151,7 +150,7 @@ const TreemapCell = (props: any) => {
 const TreemapTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   const d    = payload[0].payload;
-  if (d.depth !== 1) return null;
+  if (!d?.ticker) return null;
   const tier = mbTier(d.mbScore ?? 0);
   const mcCr = (d.quote?.marketCap ?? 0) / 1e7;
   const mcLabel = mcCr >= 100000 ? `₹${(mcCr / 100000).toFixed(1)}L Cr`
@@ -299,22 +298,18 @@ export default function MultiBaggerPage() {
     ? Math.round(points.reduce((s, p) => s + p.y, 0) / points.length)
     : 0;
 
-  // Treemap data — top 40 stocks, size ∝ MB score^1.8 (amplifies spread)
-  const treemapData = [{
-    name: 'root',
-    children: sorted.slice(0, 40).map(p => ({
-      name:     p.ticker,
-      ticker:   p.ticker,
-      fullName: p.name,
-      size:     Math.round(Math.pow(Math.max(10, p.mbScore), 1.8) / 100),
-      mbScore:  p.mbScore,
-      iscf:     p.y,
-      color:    p.color,
-      sector:   p.sector,
-      quote:    p.quote,
-      depth:    1,
-    })),
-  }];
+  // Flat treemap data — top 40 by MB score, value ∝ score^1.8 (amplifies spread)
+  const treemapData = sorted.slice(0, 40).map(p => ({
+    name:     p.ticker,
+    ticker:   p.ticker,
+    fullName: p.name,
+    value:    Math.round(Math.pow(Math.max(10, p.mbScore), 1.8) / 100),
+    mbScore:  p.mbScore,
+    iscf:     p.y,
+    color:    p.color,
+    sector:   p.sector,
+    quote:    p.quote,
+  }));
   const topScore  = sorted[0]?.mbScore ?? 0;
   const convColor = (c: string) =>
     c === 'High' ? '#10b981' : c === 'Medium' ? '#f59e0b' : '#ef4444';
@@ -462,11 +457,14 @@ export default function MultiBaggerPage() {
           <ResponsiveContainer width="100%" height={460}>
             <Treemap
               data={treemapData}
-              dataKey="size"
+              dataKey="value"
               aspectRatio={16 / 9}
-              content={<TreemapCell />}
-              onClick={(data: any) => {
-                if (data?.ticker) window.location.href = `/company/${(data.ticker as string).toLowerCase()}`;
+              isAnimationActive={false}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              content={(props: any) => <TreemapCell {...props} />}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              onClick={(node: any) => {
+                if (node?.ticker) window.location.href = `/company/${(node.ticker as string).toLowerCase()}`;
               }}
             >
               <Tooltip content={<TreemapTooltip />} />
