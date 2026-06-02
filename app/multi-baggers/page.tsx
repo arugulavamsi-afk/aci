@@ -3,10 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { stocks as curatedStocks } from '@/lib/data/mockData';
 import { getScoreColor } from '@/lib/utils';
-import {
-  ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, Cell,
-} from 'recharts';
 import { Zap, Search, Plus, Loader2, X, ChevronRight, Star, Database, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import type { LiveQuote } from '@/lib/nse/types';
@@ -56,71 +52,39 @@ function mbTier(score: number): { label: string; color: string } {
   return               { label: '⏸ Low Potential',     color: '#6b7280' };
 }
 
+function computeMbComponents(q: LiveQuote) {
+  const iscf       = computeIscfScore(q);
+  const qualityPts = Math.round((iscf / 100) * 40);
+  const g          = q.revenueGrowth ?? q.earningsGrowth;
+  const growthPts  =
+    g == null ? 10
+    : g >= 40  ? 30 : g >= 25 ? 24 : g >= 15 ? 18
+    : g >= 8   ? 12 : g >= 0  ? 6  : 0;
+  const mcCr      = (q.marketCap ?? 0) / 1e7;
+  const runwayPts =
+    mcCr <= 0       ? 10
+    : mcCr < 3000   ? 20 : mcCr < 15000 ? 16 : mcCr < 50000 ? 12
+    : mcCr < 150000 ? 8  : 4;
+  const pe = q.pe; const eg = q.earningsGrowth;
+  let valPts = 5;
+  if (pe && pe > 0 && eg && eg > 8) {
+    const peg = pe / eg;
+    valPts = peg < 0.5 ? 10 : peg < 1.0 ? 8 : peg < 1.5 ? 6 : peg < 2.5 ? 4 : 2;
+  } else if (pe && pe > 0) {
+    valPts = pe < 15 ? 9 : pe < 25 ? 7 : pe < 40 ? 5 : pe < 60 ? 3 : 2;
+  }
+  return { qualityPts, growthPts, runwayPts, valPts };
+}
+
 interface StockPoint {
   ticker: string;
   name: string;
   x: number;      // revenue growth %
   y: number;      // ISCF score
-  z: number;      // market cap (Cr) — drives bubble size
   mbScore: number;
   conviction: 'High' | 'Medium' | 'Low';
   quote: LiveQuote;
 }
-
-// Custom scatter dot — circle + ticker label
-const BubbleDot = (props: {
-  cx?: number; cy?: number; payload?: StockPoint;
-  fill?: string; r?: number;
-}) => {
-  const { cx = 0, cy = 0, payload, fill = '#d4a853', r = 8 } = props;
-  if (!payload) return null;
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={r} fill={fill} fillOpacity={0.72}
-        stroke={fill} strokeWidth={1.5} />
-      <text x={cx} y={cy - r - 4} textAnchor="middle"
-        fill="rgba(232,236,244,0.7)" fontSize={9} fontWeight={600}>
-        {payload.ticker.slice(0, 8)}
-      </text>
-    </g>
-  );
-};
-
-// Custom tooltip for the bubble chart
-const BubbleTooltip = ({ active, payload }: { active?: boolean; payload?: { payload: StockPoint }[] }) => {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  const tier = mbTier(d.mbScore);
-  const mcCr = (d.quote.marketCap ?? 0) / 1e7;
-  return (
-    <div className="custom-tooltip" style={{ minWidth: 180 }}>
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-6 h-6 rounded flex items-center justify-center text-xs font-black"
-          style={{ background: `${getScoreColor(d.y)}20`, color: getScoreColor(d.y) }}>
-          {d.ticker.slice(0, 2)}
-        </div>
-        <div>
-          <p className="text-xs font-bold" style={{ color: '#e8ecf4' }}>{d.name}</p>
-          <p className="text-xs" style={{ color: 'rgba(232,236,244,0.4)' }}>{d.ticker}</p>
-        </div>
-      </div>
-      <div className="space-y-1">
-        {[
-          { label: 'MB Score',     value: `${d.mbScore}/100`,             color: tier.color },
-          { label: 'ISCF Score',   value: `${d.y}/100`,                   color: getScoreColor(d.y) },
-          { label: 'Rev Growth',   value: `${d.x > 0 ? '+' : ''}${d.x}%`, color: d.x >= 15 ? '#10b981' : '#f59e0b' },
-          { label: 'Market Cap',   value: mcCr > 0 ? `₹${Math.round(mcCr).toLocaleString()} Cr` : '—', color: 'rgba(232,236,244,0.5)' },
-          { label: 'Conviction',   value: d.conviction,                    color: d.conviction === 'High' ? '#10b981' : d.conviction === 'Medium' ? '#f59e0b' : '#ef4444' },
-        ].map(m => (
-          <div key={m.label} className="flex items-center justify-between gap-4">
-            <span className="text-xs" style={{ color: 'rgba(232,236,244,0.4)', fontSize: '11px' }}>{m.label}</span>
-            <span className="text-xs font-bold" style={{ color: m.color, fontSize: '11px' }}>{m.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
 
 export default function MultiBaggerPage() {
   const [quotes, setQuotes]       = useState<Map<string, LiveQuote>>(new Map());
@@ -218,7 +182,6 @@ export default function MultiBaggerPage() {
         name:       q.name || ticker,
         x:          Math.round(g * 10) / 10,
         y:          iscf,
-        z:          Math.max(500, Math.min(mcCr, 300000)),
         mbScore:    computeMbScore(q),
         conviction: scoreToConviction(iscf),
         quote:      q,
@@ -232,10 +195,6 @@ export default function MultiBaggerPage() {
     ? Math.round(points.reduce((s, p) => s + p.x, 0) / points.length)
     : 0;
   const topScore  = sorted[0]?.mbScore ?? 0;
-
-  const high   = points.filter(p => p.conviction === 'High');
-  const medium = points.filter(p => p.conviction === 'Medium');
-  const low    = points.filter(p => p.conviction === 'Low');
 
   const convColor = (c: string) =>
     c === 'High' ? '#10b981' : c === 'Medium' ? '#f59e0b' : '#ef4444';
@@ -340,91 +299,120 @@ export default function MultiBaggerPage() {
         ))}
       </div>
 
-      {/* Bubble chart + leaderboard */}
+      {/* Opportunity Landscape + leaderboard */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Bubble chart */}
+        {/* Stacked score breakdown chart */}
         <div className="lg:col-span-2 glass-card p-6">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-1">
             <div>
-              <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>Quality × Growth Map</h2>
+              <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>Opportunity Landscape</h2>
               <p className="text-xs mt-0.5" style={{ color: 'rgba(232,236,244,0.4)' }}>
-                Bubble size = market cap · Top-right quadrant = Multi-Bagger Zone
+                MB score composition — see exactly what drives each ranking
               </p>
             </div>
             {loading && <Loader2 size={14} className="animate-spin" style={{ color: 'rgba(232,236,244,0.3)' }} />}
           </div>
 
-          {/* Quadrant legend */}
-          <div className="flex items-center gap-4 mb-4 flex-wrap">
+          {/* Legend */}
+          <div className="flex items-center gap-5 mb-5 mt-3 flex-wrap">
             {[
-              { color: '#10b981', label: 'High Conviction' },
-              { color: '#f59e0b', label: 'Medium Conviction' },
-              { color: '#ef4444', label: 'Low Conviction' },
+              { color: '#d4a853', label: 'Quality', pct: '40%' },
+              { color: '#10b981', label: 'Growth',  pct: '30%' },
+              { color: '#0c7b93', label: 'Runway',  pct: '20%' },
+              { color: '#8b5cf6', label: 'Value',   pct: '10%' },
             ].map(l => (
               <div key={l.label} className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full" style={{ background: l.color, opacity: 0.72 }} />
-                <span className="text-xs" style={{ color: 'rgba(232,236,244,0.45)', fontSize: '11px' }}>{l.label}</span>
+                <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: l.color }} />
+                <span className="text-xs" style={{ color: 'rgba(232,236,244,0.5)', fontSize: '11px' }}>
+                  {l.label} <span style={{ color: 'rgba(232,236,244,0.25)' }}>{l.pct}</span>
+                </span>
               </div>
             ))}
-            <div className="ml-auto flex items-center gap-1 px-2 py-1 rounded-lg" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)' }}>
-              <span className="text-xs font-bold" style={{ color: '#10b981', fontSize: '10.5px' }}>🚀 Top-right = Multi-Bagger Zone</span>
+            <div className="ml-auto text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
+              bar width = score out of 100
             </div>
           </div>
 
-          <div className="relative">
-            {/* Quadrant labels (absolutely positioned over chart) */}
-            <div className="absolute inset-0 pointer-events-none z-10" style={{ top: 10, left: 40, right: 10, bottom: 40 }}>
-              <div className="absolute top-2 right-4 text-xs font-bold" style={{ color: 'rgba(16,185,129,0.35)', fontSize: '10px' }}>
-                🚀 MULTI-BAGGER ZONE
-              </div>
-              <div className="absolute top-2 left-4 text-xs" style={{ color: 'rgba(212,168,83,0.3)', fontSize: '10px' }}>
-                QUALITY COMPOUNDER
-              </div>
-              <div className="absolute bottom-4 right-4 text-xs" style={{ color: 'rgba(239,68,68,0.25)', fontSize: '10px' }}>
-                GROWTH TRAP?
-              </div>
-              <div className="absolute bottom-4 left-4 text-xs" style={{ color: 'rgba(107,114,128,0.3)', fontSize: '10px' }}>
-                AVOID
-              </div>
+          {loading ? (
+            <div className="flex items-center justify-center h-40 gap-2" style={{ color: 'rgba(232,236,244,0.3)' }}>
+              <Loader2 size={14} className="animate-spin" /><span className="text-xs">Loading…</span>
             </div>
+          ) : sorted.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-xs" style={{ color: 'rgba(232,236,244,0.25)' }}>
+              No stocks loaded
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {sorted.slice(0, 20).map((p, i) => {
+                const comps    = computeMbComponents(p.quote);
+                const tier     = mbTier(p.mbScore);
+                const iscfColor = getScoreColor(p.y);
+                const mcCr     = (p.quote.marketCap ?? 0) / 1e7;
+                const mcLabel  = mcCr > 0 ? (mcCr >= 100000 ? `₹${(mcCr / 100000).toFixed(1)}L Cr` : `₹${Math.round(mcCr).toLocaleString()} Cr`) : '—';
+                return (
+                  <div
+                    key={p.ticker}
+                    className="flex items-center gap-3 rounded-xl px-2 py-1.5 cursor-pointer transition-colors duration-150"
+                    style={{ background: 'transparent' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                    onClick={() => { window.location.href = `/company/${p.ticker.toLowerCase()}`; }}
+                  >
+                    {/* Rank */}
+                    <span className="w-5 text-right text-xs font-black flex-shrink-0"
+                      style={{ color: i < 3 ? tier.color : 'rgba(232,236,244,0.2)', fontSize: '11px' }}>
+                      {i + 1}
+                    </span>
 
-            <ResponsiveContainer width="100%" height={380}>
-              <ScatterChart margin={{ top: 10, right: 10, left: -10, bottom: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis
-                  type="number" dataKey="x" name="Revenue Growth %"
-                  domain={['auto', 'auto']}
-                  tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }}
-                  axisLine={false} tickLine={false}
-                  label={{ value: 'Revenue Growth %', position: 'insideBottom', offset: -6, fill: 'rgba(232,236,244,0.25)', fontSize: 10 }}
-                />
-                <YAxis
-                  type="number" dataKey="y" name="ISCF Score"
-                  domain={[40, 100]}
-                  tick={{ fill: 'rgba(232,236,244,0.3)', fontSize: 10 }}
-                  axisLine={false} tickLine={false}
-                  label={{ value: 'ISCF Score', angle: -90, position: 'insideLeft', offset: 18, fill: 'rgba(232,236,244,0.25)', fontSize: 10 }}
-                />
-                <ZAxis type="number" dataKey="z" range={[80, 1400]} />
-                <Tooltip content={<BubbleTooltip />} cursor={{ strokeDasharray: '3 3', stroke: 'rgba(255,255,255,0.1)' }} />
+                    {/* Avatar */}
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center font-black flex-shrink-0"
+                      style={{ background: `${iscfColor}18`, color: iscfColor, fontSize: '10px', border: `1px solid ${iscfColor}22` }}>
+                      {p.ticker.slice(0, 2)}
+                    </div>
 
-                {/* Quadrant dividers */}
-                <ReferenceLine x={15} stroke="rgba(255,255,255,0.08)" strokeDasharray="6 4" />
-                <ReferenceLine y={75} stroke="rgba(255,255,255,0.08)" strokeDasharray="6 4" />
+                    {/* Ticker + cap */}
+                    <div className="w-28 flex-shrink-0">
+                      <div className="font-bold truncate" style={{ color: '#e8ecf4', fontSize: '12.5px' }}>{p.ticker}</div>
+                      <div className="truncate" style={{ color: 'rgba(232,236,244,0.3)', fontSize: '10px' }}>{mcLabel}</div>
+                    </div>
 
-                {/* Scatter by conviction */}
-                <Scatter name="High" data={high} shape={<BubbleDot />}>
-                  {high.map((_, i) => <Cell key={i} fill="#10b981" />)}
-                </Scatter>
-                <Scatter name="Medium" data={medium} shape={<BubbleDot />}>
-                  {medium.map((_, i) => <Cell key={i} fill="#f59e0b" />)}
-                </Scatter>
-                <Scatter name="Low" data={low} shape={<BubbleDot />}>
-                  {low.map((_, i) => <Cell key={i} fill="#ef4444" />)}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
-          </div>
+                    {/* Stacked bar */}
+                    <div className="flex-1 h-5 rounded-lg overflow-hidden flex" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                      {comps.qualityPts > 0 && (
+                        <div title={`Quality: ${comps.qualityPts}pts`}
+                          style={{ width: `${comps.qualityPts}%`, background: 'rgba(212,168,83,0.8)', borderRight: '1px solid rgba(0,0,0,0.25)' }} />
+                      )}
+                      {comps.growthPts > 0 && (
+                        <div title={`Growth: ${comps.growthPts}pts`}
+                          style={{ width: `${comps.growthPts}%`, background: 'rgba(16,185,129,0.8)', borderRight: '1px solid rgba(0,0,0,0.25)' }} />
+                      )}
+                      {comps.runwayPts > 0 && (
+                        <div title={`Runway: ${comps.runwayPts}pts`}
+                          style={{ width: `${comps.runwayPts}%`, background: 'rgba(12,123,147,0.8)', borderRight: '1px solid rgba(0,0,0,0.25)' }} />
+                      )}
+                      {comps.valPts > 0 && (
+                        <div title={`Value: ${comps.valPts}pts`}
+                          style={{ width: `${comps.valPts}%`, background: 'rgba(139,92,246,0.8)' }} />
+                      )}
+                    </div>
+
+                    {/* Growth % pill */}
+                    <div className="w-14 text-right flex-shrink-0">
+                      <span className="text-xs font-bold metric-number"
+                        style={{ color: p.x >= 20 ? '#10b981' : p.x >= 8 ? '#f59e0b' : p.x >= 0 ? 'rgba(232,236,244,0.4)' : '#ef4444', fontSize: '11px' }}>
+                        {p.x > 0 ? '+' : ''}{p.x}%
+                      </span>
+                    </div>
+
+                    {/* Score */}
+                    <div className="w-8 text-right flex-shrink-0">
+                      <span className="font-black metric-number" style={{ color: tier.color, fontSize: '14px' }}>{p.mbScore}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Leaderboard */}
