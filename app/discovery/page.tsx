@@ -402,7 +402,7 @@ export default function DiscoveryPage() {
 
                   return (
                     <tr key={q.symbol} className="cursor-pointer"
-                      onClick={() => { if (stock.isCurated) window.location.href = `/company/${q.symbol.toLowerCase()}`; }}>
+                      onClick={() => { window.location.href = `/company/${q.symbol.toLowerCase()}`; }}>
                       <td><span className="text-xs" style={{ color: 'rgba(232,236,244,0.25)' }}>{(page - 1) * PAGE_SIZE + i + 1}</span></td>
 
                       {/* Company */}
