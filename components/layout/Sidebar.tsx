@@ -4,15 +4,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Search, Building2, Star, Bot,
-  TrendingUp, Shield, Zap, ChevronRight, Database, Landmark, FileText,
+  TrendingUp, Shield, Zap, ChevronRight, Database, Landmark, FileText, Rocket,
 } from 'lucide-react';
 
 const navItems = [
-  { href: '/', icon: LayoutDashboard, label: 'Command Center' },
-  { href: '/discovery', icon: Search, label: 'Stock Discovery' },
-  { href: '/company/bel', icon: Building2, label: 'Company Research' },
-  { href: '/watchlist', icon: Star, label: 'My Watchlist' },
-  { href: '/copilot', icon: Bot, label: 'AI Copilot' },
+  { href: '/',               icon: LayoutDashboard, label: 'Command Center' },
+  { href: '/discovery',      icon: Search,          label: 'Stock Discovery' },
+  { href: '/multi-baggers',  icon: Rocket,          label: 'Multi-Bagger Radar' },
+  { href: '/company/bel',    icon: Building2,       label: 'Company Research' },
+  { href: '/watchlist',      icon: Star,            label: 'My Watchlist' },
+  { href: '/copilot',        icon: Bot,             label: 'AI Copilot' },
 ];
 
 const quickLinks = [
