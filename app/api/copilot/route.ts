@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const SYSTEM_PROMPT = `You are the Aishwaryamasthu AI Copilot — an institutional-grade investment research assistant specialized in Indian equity markets.
 
@@ -19,14 +19,13 @@ Guidelines:
 - Include Bull / Bear / Base cases for stock analysis
 - Highlight key risks alongside the opportunity
 - Reference India's structural themes: ₹18.8L Cr power capex, ₹6.2L Cr defense, ₹8.4L Cr railways, ₹3.8L Cr water
-- Keep responses concise but insightful — no padding
-- For NSE stocks, append .NS for Yahoo Finance reference`;
+- Keep responses concise but insightful — no padding`;
 
 export async function POST(req: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
   if (!apiKey) {
     return Response.json(
-      { error: 'ANTHROPIC_API_KEY is not configured. Add it in Vercel → Settings → Environment Variables, then redeploy.' },
+      { error: 'GOOGLE_GEMINI_API_KEY is not configured. Get a free key at aistudio.google.com/apikey and add it in Vercel → Settings → Environment Variables.' },
       { status: 503 }
     );
   }
@@ -38,35 +37,36 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const client = new Anthropic({ apiKey });
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction: SYSTEM_PROMPT,
+  });
+
+  // Convert message history for Gemini format
+  // Gemini uses 'model' instead of 'assistant', and needs at least one user turn
+  const history = messages.slice(0, -1).map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+  const lastMessage = messages[messages.length - 1];
 
   const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
     async start(controller) {
       try {
-        const stream = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1024,
-          system: SYSTEM_PROMPT,
-          messages,
-          stream: true,
-        });
+        const chat = model.startChat({ history });
+        const result = await chat.sendMessageStream(lastMessage.content);
 
-        for await (const event of stream) {
-          if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-            controller.enqueue(encoder.encode(event.delta.text));
-          }
-          if (event.type === 'message_stop') {
-            controller.close();
-            return;
-          }
+        for await (const chunk of result.stream) {
+          const text = chunk.text();
+          if (text) controller.enqueue(encoder.encode(text));
         }
         controller.close();
       } catch (err) {
-        // Stream the error message as text so the client can display it
         const msg = err instanceof Error ? err.message : String(err);
-        controller.enqueue(encoder.encode(`\n\n**Error from Claude API:** ${msg}`));
+        controller.enqueue(encoder.encode(`\n\n**Error:** ${msg}`));
         controller.close();
       }
     },
