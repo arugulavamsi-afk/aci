@@ -61,9 +61,10 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: 'symbols query param required' }, { status: 400 });
   }
 
+  // BSE scrip codes are all-numeric (e.g. "500325"); NSE tickers are alphanumeric ("RELIANCE")
   const nsSymbols = symbolsParam
     .split(',')
-    .map(s => `${s.trim()}.NS`)
+    .map(s => { const t = s.trim(); return /^\d+$/.test(t) ? `${t}.BO` : `${t}.NS`; })
     .join(',');
 
   try {
@@ -89,7 +90,7 @@ export async function GET(req: NextRequest) {
     const raw: any[] = data?.quoteResponse?.result ?? [];
 
     const quotes: LiveQuote[] = raw.map(q => ({
-      symbol:          (q.symbol as string)?.replace('.NS', '') ?? '',
+      symbol:          (q.symbol as string)?.replace(/\.(NS|BO)$/, '') ?? '',
       name:            (q.shortName || q.longName || '') as string,
       cmp:             num(q.regularMarketPrice) ?? 0,
       change:          num(q.regularMarketChange) ?? 0,

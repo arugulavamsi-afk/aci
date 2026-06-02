@@ -114,10 +114,10 @@ export default function DiscoveryPage() {
     setPage(1);
 
     try {
-      // Step 1: fetch full symbol list and immediately seed all stocks as stubs
-      const symRes = await fetch('/api/nse/symbols', { signal });
+      // Step 1: fetch combined NSE + BSE-only symbol list; seed all as stubs immediately
+      const symRes = await fetch('/api/symbols', { signal });
       if (!symRes.ok) throw new Error(`Symbol fetch failed: ${symRes.status}`);
-      const { symbols } = await symRes.json() as { symbols: { symbol: string; name: string }[] };
+      const { symbols } = await symRes.json() as { symbols: { symbol: string; name: string; exchange: 'NSE' | 'BSE' }[] };
       setLoadingSymbols(false);
 
       // Curated stocks first, then the rest — seed ALL as stubs so count is correct immediately
@@ -240,8 +240,8 @@ export default function DiscoveryPage() {
             <h1 className="text-2xl font-black" style={{ color: '#e8ecf4' }}>Compounder Screener</h1>
             <p className="text-sm mt-1" style={{ color: 'rgba(232,236,244,0.45)' }}>
               {allStocks.length > 0
-                ? `${allStocks.length.toLocaleString()} NSE stocks · ${filtered.length.toLocaleString()} matching`
-                : 'Loading NSE universe…'}
+                ? `${allStocks.length.toLocaleString()} NSE · BSE stocks · ${filtered.length.toLocaleString()} matching`
+                : 'Loading NSE · BSE universe…'}
             </p>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(212,168,83,0.1)', color: '#d4a853', border: '1px solid rgba(212,168,83,0.2)', fontSize: '10.5px' }}>
