@@ -43,12 +43,15 @@ export async function POST(req: Request) {
     systemInstruction: SYSTEM_PROMPT,
   });
 
-  // Convert message history for Gemini format
-  // Gemini uses 'model' instead of 'assistant', and needs at least one user turn
-  const history = messages.slice(0, -1).map(m => ({
+  // Convert message history for Gemini format.
+  // Gemini uses 'model' instead of 'assistant' and requires history to START with a 'user' turn.
+  // Strip any leading assistant/model messages (e.g. the welcome message).
+  const rawHistory = messages.slice(0, -1).map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
+  const firstUserIdx = rawHistory.findIndex(m => m.role === 'user');
+  const history = firstUserIdx >= 0 ? rawHistory.slice(firstUserIdx) : [];
   const lastMessage = messages[messages.length - 1];
 
   const encoder = new TextEncoder();
