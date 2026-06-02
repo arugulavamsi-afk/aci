@@ -53,7 +53,7 @@
       "allocationCrore": 1110000,
       "yoyChangePct": 9.1,
       "tailwindStrength": "strong",
-      "schemes": ["PM Gati Shakti", "Bharatmala Phase 2", "Sagarmala", "UDAN"],
+      "schemes": ["PM Gati Shakti", "Bharatmala Phase 2", "Sagarmala", "Multimodal Logistics Parks"],
       "keyHighlight": "₹111L Cr NIP over 7 years; ₹2.78L Cr NHAI capex; multimodal logistics parks"
     },
     "shipbuilding": {
@@ -86,15 +86,31 @@
       "yoyChangePct": 35.0,
       "tailwindStrength": "strong",
       "schemes": ["PLI Drones", "Space Activities Bill", "IN-SPACe", "BharatDrone Mahotsav"],
-      "keyHighlight": "Drone PLI ₹120 Cr; ISRO commercialisation via NewSpace India; 4 space startups funded"
+      "keyHighlight": "Drone PLI ₹120 Cr; ISRO commercialisation via NewSpace India; space startups funded"
     },
     "digital_it": {
       "policyWeight": 16,
       "allocationCrore": 149300,
       "yoyChangePct": 8.8,
       "tailwindStrength": "strong",
-      "schemes": ["Digital India", "India AI Mission", "GCC Policy", "Semicon India", "BharatNet"],
-      "keyHighlight": "₹10K Cr AI Mission; GCC policy 2024; 1,700+ GCCs, ₹5.1L Cr revenue target by 2030"
+      "schemes": ["Digital India", "India AI Mission", "GCC Policy", "BharatNet"],
+      "keyHighlight": "₹10K Cr AI Mission; GCC policy 2024; 1,700+ GCCs targeting ₹5.1L Cr revenue by 2030"
+    },
+    "telecom_infra": {
+      "policyWeight": 15,
+      "allocationCrore": 228000,
+      "yoyChangePct": 12.0,
+      "tailwindStrength": "strong",
+      "schemes": ["BharatNet Phase III", "BSNL Revival ₹89K Cr", "Spectrum Policy", "5G Rollout"],
+      "keyHighlight": "₹1.39L Cr BharatNet rural broadband; BSNL revival ₹89K Cr; 5G infra push"
+    },
+    "aviation": {
+      "policyWeight": 15,
+      "allocationCrore": 98000,
+      "yoyChangePct": 14.0,
+      "tailwindStrength": "strong",
+      "schemes": ["UDAN 5.0", "AAI Airport Expansion", "MRO Policy", "Regional Connectivity"],
+      "keyHighlight": "AAI ₹98K Cr airport capex; UDAN 5.0 regional routes; MRO hub ambition"
     },
     "specialty_chemicals": {
       "policyWeight": 15,
@@ -117,15 +133,31 @@
       "allocationCrore": 63550,
       "yoyChangePct": 7.5,
       "tailwindStrength": "moderate",
-      "schemes": ["PLI Capital Goods", "PM Mitra Textile Parks", "National Industrial Corridor"],
+      "schemes": ["PLI Capital Goods", "National Industrial Corridor", "Make in India"],
       "keyHighlight": "₹6,355 Cr PLI capital goods; 11 industrial corridors; DPIIT Make in India push"
+    },
+    "steel_metals": {
+      "policyWeight": 14,
+      "allocationCrore": 45000,
+      "yoyChangePct": 6.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["National Steel Policy", "PLI Specialty Steel", "Critical Minerals Mission"],
+      "keyHighlight": "300 MT steel target by 2030; green steel push; critical minerals self-sufficiency"
+    },
+    "textiles": {
+      "policyWeight": 14,
+      "allocationCrore": 10683,
+      "yoyChangePct": 5.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["PLI Textiles ₹10,683 Cr", "PM MITRA 7 Parks", "RoSCTL", "TUFS"],
+      "keyHighlight": "7 PM MITRA textile parks; China+1 garment shift; ₹10,683 Cr PLI for MMF & tech textiles"
     },
     "pli_manufacturing": {
       "policyWeight": 14,
       "allocationCrore": 197000,
       "yoyChangePct": 5.0,
       "tailwindStrength": "moderate",
-      "schemes": ["PLI Auto", "PLI Textiles", "PLI Food Processing", "PLI White Goods"],
+      "schemes": ["PLI Auto", "PLI Food Processing", "PLI White Goods", "PLI Telecom"],
       "keyHighlight": "14 sector PLI ₹1.97L Cr; auto PLI ₹26K Cr; ACC battery PLI ₹18.1K Cr"
     },
     "agri_food": {
@@ -135,6 +167,46 @@
       "tailwindStrength": "moderate",
       "schemes": ["PM Kisan Sampada", "MIDH", "PMFBY", "Agriculture Infrastructure Fund"],
       "keyHighlight": "Food processing PLI ₹10.9K Cr; agri infra fund ₹1L Cr; FPO formation"
+    },
+    "mining": {
+      "policyWeight": 13,
+      "allocationCrore": 25000,
+      "yoyChangePct": 5.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["Critical Minerals Mission", "MMDR Amendment", "Coal India capex", "Mine auctions"],
+      "keyHighlight": "Critical minerals self-sufficiency; 30 critical minerals identified; mine auction acceleration"
+    },
+    "oil_gas": {
+      "policyWeight": 12,
+      "allocationCrore": 40000,
+      "yoyChangePct": 3.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["City Gas Distribution", "LNG Terminal Expansion", "ONGC Capex", "Pipeline Connectivity"],
+      "keyHighlight": "City gas distribution to 400+ districts; LNG bunkering push; government controls pricing — mixed signal"
+    },
+    "consumer_services": {
+      "policyWeight": 11,
+      "allocationCrore": 3295,
+      "yoyChangePct": 8.0,
+      "tailwindStrength": "moderate",
+      "schemes": ["Swadesh Darshan 2.0", "Pilgrimage Rejuvenation", "MICE Tourism"],
+      "keyHighlight": "₹3,295 Cr Swadesh Darshan; pilgrim tourism infra push; middle class travel demand rising"
+    },
+    "fmcg_retail": {
+      "policyWeight": 10,
+      "allocationCrore": 0,
+      "yoyChangePct": 3.0,
+      "tailwindStrength": "weak",
+      "schemes": ["PM Poshan", "National Retail Policy (draft)", "ONDC"],
+      "keyHighlight": "Rising middle class consumption; ONDC digital commerce; no major direct policy push"
+    },
+    "media_entertainment": {
+      "policyWeight": 9,
+      "allocationCrore": 0,
+      "yoyChangePct": 2.0,
+      "tailwindStrength": "weak",
+      "schemes": ["Broadcasting Bill", "OTT regulation framework"],
+      "keyHighlight": "Minimal direct government investment; regulatory framework evolving; consumption-driven"
     },
     "real_estate": {
       "policyWeight": 11,
