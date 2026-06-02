@@ -270,14 +270,20 @@ export default function MultiBaggerPage() {
       // (ROE × ~45% retention ≈ sustainable growth rate — better than forcing 0)
       let g: number;
       let xMetric: string;
-      if (q.revenueGrowth != null) {
-        g = q.revenueGrowth;          xMetric = 'Rev Growth';
-      } else if (q.earningsGrowth != null) {
-        g = q.earningsGrowth;         xMetric = 'EPS Growth';
-      } else if (q.roe != null) {
-        g = Math.round(q.roe * 0.45); xMetric = 'Est.(ROE×0.45)';
+      // Yahoo Finance often stores 0.0 (not null) when data is unavailable for Indian stocks.
+      // Treat both null AND 0 as "no data" and cascade to the next available signal.
+      const hasRG = q.revenueGrowth != null && q.revenueGrowth !== 0;
+      const hasEG = q.earningsGrowth != null && q.earningsGrowth !== 0;
+      if (hasRG) {
+        g = q.revenueGrowth!;              xMetric = 'Rev Growth';
+      } else if (hasEG) {
+        g = q.earningsGrowth!;             xMetric = 'EPS Growth';
+      } else if (q.roe != null && q.roe > 0) {
+        g = Math.round(q.roe * 0.45);      xMetric = 'Est.(ROE)';
+      } else if (q.operatingMargin != null && q.operatingMargin > 0) {
+        g = Math.round(q.operatingMargin * 0.5); xMetric = 'Est.(OPM)';
       } else {
-        g = 0;                        xMetric = 'N/A';
+        g = 0;                             xMetric = 'N/A';
       }
       return {
         ticker,
@@ -414,7 +420,20 @@ export default function MultiBaggerPage() {
               X = Rev Growth (EPS Growth or ROE estimate as fallback) · Y = ISCF Quality · Size = Market Cap · Color = Sector
             </p>
           </div>
-          {loading && <Loader2 size={14} className="animate-spin" style={{ color: 'rgba(232,236,244,0.3)' }} />}
+          <div className="flex items-center gap-2">
+            {!loading && points.length > 0 && (() => {
+              const rv = points.filter(p => p.xMetric === 'Rev Growth').length;
+              const ep = points.filter(p => p.xMetric === 'EPS Growth').length;
+              const es = points.filter(p => p.xMetric.startsWith('Est')).length;
+              const na = points.filter(p => p.xMetric === 'N/A').length;
+              return (
+                <span className="text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
+                  x-axis: {rv > 0 ? `${rv} rev · ` : ''}{ep > 0 ? `${ep} eps · ` : ''}{es > 0 ? `${es} est · ` : ''}{na > 0 ? `${na} n/a` : ''}
+                </span>
+              );
+            })()}
+            {loading && <Loader2 size={14} className="animate-spin" style={{ color: 'rgba(232,236,244,0.3)' }} />}
+          </div>
         </div>
 
         {/* Sector legend — only sectors present in data */}
