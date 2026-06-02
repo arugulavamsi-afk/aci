@@ -3,10 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { stocks as curatedStocks } from '@/lib/data/mockData';
 import { getScoreColor } from '@/lib/utils';
-import {
-  ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, Cell,
-} from 'recharts';
+import { Treemap, Tooltip, ResponsiveContainer } from 'recharts';
 import { Zap, Search, Plus, Loader2, X, ChevronRight, Star, Database, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import type { LiveQuote } from '@/lib/nse/types';
@@ -100,10 +97,7 @@ function computeMbComponents(q: LiveQuote) {
 interface StockPoint {
   ticker: string;
   name: string;
-  x: number;          // P/E ratio (0 = not available)
-  xMetric: string;    // 'P/E Ratio' | 'N/A'
-  y: number;          // ISCF score
-  z: number;          // market cap Cr — drives bubble size
+  y: number;      // ISCF score
   mbScore: number;
   conviction: 'High' | 'Medium' | 'Low';
   sector: string;
@@ -111,58 +105,80 @@ interface StockPoint {
   quote: LiveQuote;
 }
 
-// Finviz-style bubble: large circle with ticker centered inside
-const BubbleDot = (props: { cx?: number; cy?: number; r?: number; payload?: StockPoint; fill?: string }) => {
-  const { cx = 0, cy = 0, r = 12, payload } = props;
-  if (!payload) return null;
-  const color = payload.color;
-  const fontSize = Math.max(7, Math.min(11, r * 0.52));
-  const label = payload.ticker.length <= 4 ? payload.ticker : payload.ticker.slice(0, 5);
+// ── Treemap cell — rendered for every rectangle in the Finviz-style map ──────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TreemapCell = (props: any) => {
+  const { x, y, width, height, ticker, mbScore, color, depth } = props;
+  if (!width || !height || width < 4 || height < 4) return null;
+  if (depth !== 1) return null; // only render leaf nodes
+
+  const tier      = mbTier(mbScore ?? 0);
+  const minDim    = Math.min(width, height);
+  const fsTicker  = Math.max(8, Math.min(14, minDim * 0.22));
+  const fsScore   = Math.max(7, Math.min(11, minDim * 0.16));
+  const showScore = width > 52 && height > 46;
+  const maxChars  = Math.max(2, Math.floor(width / (fsTicker * 0.62)));
+
   return (
     <g style={{ cursor: 'pointer' }}
-      onClick={() => { window.location.href = `/company/${payload.ticker.toLowerCase()}`; }}>
-      <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.22}
-        stroke={color} strokeWidth={1.8} />
-      {r >= 14 && (
-        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
-          fill={color} fontSize={fontSize} fontWeight={700}
-          style={{ pointerEvents: 'none', letterSpacing: '-0.3px' }}>
-          {label}
+      onClick={() => { window.location.href = `/company/${(ticker as string).toLowerCase()}`; }}>
+      <rect x={x + 1} y={y + 1} width={width - 2} height={height - 2}
+        fill={color} fillOpacity={0.18}
+        stroke={color} strokeWidth={1.5} strokeOpacity={0.55}
+        rx={3} />
+      {width > 28 && height > 22 && (
+        <text x={x + width / 2} y={y + height / 2 - (showScore ? fsScore * 0.6 : 0)}
+          textAnchor="middle" dominantBaseline="middle"
+          fill={color} fontSize={fsTicker} fontWeight={700}
+          style={{ pointerEvents: 'none', letterSpacing: '-0.4px' }}>
+          {(ticker as string).slice(0, maxChars)}
+        </text>
+      )}
+      {showScore && (
+        <text x={x + width / 2} y={y + height / 2 + fsScore}
+          textAnchor="middle" dominantBaseline="middle"
+          fill={tier.color} fontSize={fsScore} fontWeight={600}
+          style={{ pointerEvents: 'none' }}>
+          {mbScore}
         </text>
       )}
     </g>
   );
 };
 
-const BubbleTooltip = ({ active, payload }: { active?: boolean; payload?: { payload: StockPoint }[] }) => {
+// ── Treemap tooltip ───────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TreemapTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
-  const d   = payload[0].payload;
-  const tier = mbTier(d.mbScore);
-  const mcCr = (d.quote.marketCap ?? 0) / 1e7;
-  const mcLabel = mcCr >= 100000
-    ? `₹${(mcCr / 100000).toFixed(1)}L Cr`
-    : mcCr > 0 ? `₹${Math.round(mcCr).toLocaleString()} Cr` : '—';
+  const d    = payload[0].payload;
+  if (d.depth !== 1) return null;
+  const tier = mbTier(d.mbScore ?? 0);
+  const mcCr = (d.quote?.marketCap ?? 0) / 1e7;
+  const mcLabel = mcCr >= 100000 ? `₹${(mcCr / 100000).toFixed(1)}L Cr`
+                : mcCr > 0      ? `₹${Math.round(mcCr).toLocaleString()} Cr`
+                : '—';
+  const pe = d.quote?.pe;
   return (
     <div className="custom-tooltip" style={{ minWidth: 210 }}>
       <div className="flex items-center gap-2.5 mb-3">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm flex-shrink-0"
-          style={{ background: `${d.color}20`, color: d.color, border: `1px solid ${d.color}35` }}>
-          {d.ticker.slice(0, 2)}
+          style={{ background: `${d.color}22`, color: d.color, border: `1px solid ${d.color}35` }}>
+          {(d.ticker as string).slice(0, 2)}
         </div>
         <div>
           <p className="font-bold text-sm" style={{ color: '#e8ecf4' }}>{d.ticker}</p>
-          <p className="text-xs truncate max-w-[130px]" style={{ color: 'rgba(232,236,244,0.4)' }}>{d.name}</p>
+          <p className="text-xs truncate max-w-[140px]" style={{ color: 'rgba(232,236,244,0.4)' }}>{d.fullName}</p>
         </div>
       </div>
       <div className="space-y-1.5">
         {[
-          { label: 'MB Score',   value: `${d.mbScore}/100`,                 color: tier.color },
-          { label: 'ISCF',       value: `${d.y}/100`,                       color: getScoreColor(d.y) },
-          { label: d.xMetric,    value: `${d.x > 0 ? '+' : ''}${d.x}%`,    color: d.x >= 15 ? '#10b981' : d.x >= 0 ? '#f59e0b' : '#ef4444' },
-          { label: 'Market Cap', value: mcLabel,                            color: 'rgba(232,236,244,0.55)' },
-          { label: 'Sector',     value: d.sector || '—',                    color: d.color },
+          { label: 'MB Score',   value: `${d.mbScore}/100`, color: tier.color },
+          { label: 'ISCF',       value: `${d.iscf}/100`,   color: getScoreColor(d.iscf) },
+          { label: 'P/E',        value: pe != null ? `${pe.toFixed(1)}×` : '—', color: pe && pe <= 25 ? '#10b981' : '#f59e0b' },
+          { label: 'Market Cap', value: mcLabel,            color: 'rgba(232,236,244,0.55)' },
+          { label: 'Sector',     value: d.sector || '—',   color: d.color },
         ].map(m => (
-          <div key={m.label} className="flex items-center justify-between gap-4">
+          <div key={m.label} className="flex justify-between gap-4">
             <span className="text-xs" style={{ color: 'rgba(232,236,244,0.38)', fontSize: '11px' }}>{m.label}</span>
             <span className="text-xs font-bold" style={{ color: m.color, fontSize: '11px' }}>{m.value}</span>
           </div>
@@ -263,26 +279,13 @@ export default function MultiBaggerPage() {
     .map(ticker => {
       const q = quotes.get(ticker);
       if (!q || q.cmp === 0) return null;
-      const iscf = computeIscfScore(q);
-      const mcCr = (q.marketCap ?? 0) / 1e7;
       const sector = q.sector ?? '';
-      // X-axis = P/E ratio — reliably available for all listed Indian companies.
-      // Revenue growth is not reliably returned by Yahoo Finance for NSE stocks.
-      // Lower PE (left) = value; higher PE (right) = growth premium.
-      // Multi-bagger zone: top-LEFT (high ISCF quality + low PE).
-      const pe = (q.pe != null && q.pe > 0 && q.pe < 200) ? q.pe
-               : (q.forwardPe != null && q.forwardPe > 0 && q.forwardPe < 200) ? q.forwardPe
-               : null;
       return {
         ticker,
         name:       q.name || ticker,
-        x:          pe != null ? Math.round(pe * 10) / 10 : 0,
-        xMetric:    pe != null ? 'P/E Ratio' : 'N/A',
-        y:          iscf,
-        // sqrt-compress market cap so large caps don't dwarf small ones
-        z:          Math.round(Math.sqrt(Math.max(500, Math.min(mcCr, 200000)))),
+        y:          computeIscfScore(q),
         mbScore:    computeMbScore(q),
-        conviction: scoreToConviction(iscf),
+        conviction: scoreToConviction(computeIscfScore(q)),
         sector,
         color:      getSectorColor(sector),
         quote:      q,
@@ -290,19 +293,29 @@ export default function MultiBaggerPage() {
     })
     .filter(Boolean) as StockPoint[];
 
-  const sorted     = [...points].sort((a, b) => b.mbScore - a.mbScore);
-  // Chart shows only top 25 — full table below has everything
-  const chartPoints = sorted.slice(0, 25);
-  // Multi-bagger zone: high ISCF (≥75) + low PE (≤25) = quality at fair value
-  const mbZone    = points.filter(p => p.x > 0 && p.x <= 25 && p.y >= 75);
-  const avgPe     = (() => {
-    const withPe = points.filter(p => p.x > 0);
-    return withPe.length > 0
-      ? Math.round(withPe.reduce((s, p) => s + p.x, 0) / withPe.length)
-      : 0;
-  })();
-  const topScore  = sorted[0]?.mbScore ?? 0;
+  const sorted  = [...points].sort((a, b) => b.mbScore - a.mbScore);
+  const mbZone  = points.filter(p => p.y >= 75 && (p.quote.pe ?? 999) <= 25);
+  const avgIscf = points.length > 0
+    ? Math.round(points.reduce((s, p) => s + p.y, 0) / points.length)
+    : 0;
 
+  // Treemap data — top 40 stocks, size ∝ MB score^1.8 (amplifies spread)
+  const treemapData = [{
+    name: 'root',
+    children: sorted.slice(0, 40).map(p => ({
+      name:     p.ticker,
+      ticker:   p.ticker,
+      fullName: p.name,
+      size:     Math.round(Math.pow(Math.max(10, p.mbScore), 1.8) / 100),
+      mbScore:  p.mbScore,
+      iscf:     p.y,
+      color:    p.color,
+      sector:   p.sector,
+      quote:    p.quote,
+      depth:    1,
+    })),
+  }];
+  const topScore  = sorted[0]?.mbScore ?? 0;
   const convColor = (c: string) =>
     c === 'High' ? '#10b981' : c === 'Medium' ? '#f59e0b' : '#ef4444';
 
@@ -393,10 +406,10 @@ export default function MultiBaggerPage() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Stocks Analyzed',    value: loading ? '…' : points.length,   color: '#2bb5d4', sub: `${tickers.length} tickers loaded` },
-          { label: 'In MB Zone',         value: loading ? '…' : mbZone.length,   color: '#10b981', sub: 'ISCF ≥ 75 + PE ≤ 25' },
-          { label: 'Avg P/E Ratio',      value: loading ? '…' : `${avgPe}x`,     color: '#d4a853', sub: 'across universe' },
-          { label: 'Top MB Score',       value: loading ? '…' : topScore,         color: '#8b5cf6', sub: sorted[0]?.ticker ?? '—' },
+          { label: 'Stocks Analyzed',   value: loading ? '…' : points.length,  color: '#2bb5d4', sub: `${tickers.length} tickers loaded` },
+          { label: 'In MB Zone',        value: loading ? '…' : mbZone.length,  color: '#10b981', sub: 'ISCF ≥ 75 + PE ≤ 25' },
+          { label: 'Avg ISCF Score',    value: loading ? '…' : `${avgIscf}`,   color: '#d4a853', sub: 'quality across universe' },
+          { label: 'Top MB Score',      value: loading ? '…' : topScore,        color: '#8b5cf6', sub: sorted[0]?.ticker ?? '—' },
         ].map(k => (
           <div key={k.label} className="glass-card p-5">
             <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'rgba(232,236,244,0.35)', fontSize: '10px' }}>{k.label}</div>
@@ -406,90 +419,60 @@ export default function MultiBaggerPage() {
         ))}
       </div>
 
-      {/* Bubble map — full width */}
-      <div className="glass-card p-6">
-        <div className="flex items-start justify-between mb-1">
+      {/* Finviz-style treemap — full width */}
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between mb-3">
           <div>
-            <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>Multi-Bagger Bubble Map</h2>
+            <h2 className="font-bold text-base" style={{ color: '#e8ecf4' }}>Multi-Bagger Map</h2>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(232,236,244,0.4)' }}>
-              Top 25 by MB Score · X = P/E · Y = ISCF Quality · Size = Market Cap · Color = Sector
+              Larger rectangle = higher MB score · Color = sector · Hover for details · Click to research
             </p>
           </div>
           <div className="flex items-center gap-2">
             {!loading && sorted.length > 0 && (
               <span className="text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
-                showing top 25 of {sorted.length} · full list below
+                top {Math.min(40, sorted.length)} of {sorted.length}
               </span>
             )}
             {loading && <Loader2 size={14} className="animate-spin" style={{ color: 'rgba(232,236,244,0.3)' }} />}
           </div>
         </div>
 
-        {/* Sector legend — only sectors present in data */}
+        {/* Sector legend */}
         {!loading && points.length > 0 && (() => {
           const seen = new Map<string, string>();
-          points.forEach(p => { if (p.sector && !seen.has(p.sector)) seen.set(p.sector, p.color); });
+          sorted.slice(0, 40).forEach(p => { if (p.sector && !seen.has(p.sector)) seen.set(p.sector, p.color); });
           return (
-            <div className="flex items-center gap-4 mt-3 mb-2 flex-wrap">
+            <div className="flex items-center gap-4 mb-3 flex-wrap">
               {Array.from(seen.entries()).map(([sector, color]) => (
                 <div key={sector} className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color, opacity: 0.85 }} />
-                  <span className="text-xs" style={{ color: 'rgba(232,236,244,0.45)', fontSize: '11px' }}>{sector}</span>
+                  <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: color }} />
+                  <span className="text-xs" style={{ color: 'rgba(232,236,244,0.4)', fontSize: '10.5px' }}>{sector}</span>
                 </div>
               ))}
-              <div className="ml-auto flex items-center gap-3 text-xs" style={{ color: 'rgba(232,236,244,0.2)', fontSize: '10px' }}>
-                <span>← low quality</span>
-                <span style={{ color: 'rgba(16,185,129,0.5)', fontWeight: 700 }}>🚀 top-left = multi-bagger zone (quality + value)</span>
-                <span>high PE →</span>
-              </div>
             </div>
           );
         })()}
 
-        <div className="relative" style={{ height: 500 }}>
-          {/* Quadrant labels */}
-          <div className="absolute inset-0 pointer-events-none z-10" style={{ top: 10, left: 55, right: 10, bottom: 40 }}>
-            <div className="absolute top-3 left-6 text-xs font-bold" style={{ color: 'rgba(16,185,129,0.35)', fontSize: '10px', letterSpacing: '0.08em' }}>
-              🚀 MULTI-BAGGER ZONE
-            </div>
-            <div className="absolute top-3 right-6 text-xs" style={{ color: 'rgba(212,168,83,0.25)', fontSize: '10px', letterSpacing: '0.08em' }}>
-              QUALITY PREMIUM
-            </div>
-            <div className="absolute bottom-6 left-6 text-xs" style={{ color: 'rgba(245,158,11,0.25)', fontSize: '10px', letterSpacing: '0.08em' }}>
-              VALUE TRAP?
-            </div>
-            <div className="absolute bottom-6 right-6 text-xs" style={{ color: 'rgba(107,114,128,0.2)', fontSize: '10px', letterSpacing: '0.08em' }}>
-              AVOID
-            </div>
+        {loading ? (
+          <div className="flex items-center justify-center" style={{ height: 460 }}>
+            <Loader2 size={20} className="animate-spin" style={{ color: 'rgba(232,236,244,0.2)' }} />
           </div>
-
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 20, right: 20, left: 0, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
-              <XAxis
-                type="number" dataKey="x" name="P/E Ratio"
-                domain={[0, 80]}
-                tick={{ fill: 'rgba(232,236,244,0.25)', fontSize: 10 }}
-                axisLine={{ stroke: 'rgba(255,255,255,0.06)' }} tickLine={false}
-                label={{ value: 'P/E Ratio (lower = better value →)', position: 'insideBottom', offset: -10, fill: 'rgba(232,236,244,0.2)', fontSize: 10 }}
-              />
-              <YAxis
-                type="number" dataKey="y" name="ISCF Score"
-                domain={[30, 100]}
-                tick={{ fill: 'rgba(232,236,244,0.25)', fontSize: 10 }}
-                axisLine={{ stroke: 'rgba(255,255,255,0.06)' }} tickLine={false}
-                label={{ value: 'ISCF Quality Score', angle: -90, position: 'insideLeft', offset: 16, fill: 'rgba(232,236,244,0.2)', fontSize: 10 }}
-              />
-              <ZAxis type="number" dataKey="z" range={[300, 2200]} domain={[22, 450]} />
-              <Tooltip content={<BubbleTooltip />} cursor={false} />
-              <ReferenceLine x={25} stroke="rgba(255,255,255,0.07)" strokeDasharray="6 3" />
-              <ReferenceLine y={75} stroke="rgba(255,255,255,0.07)" strokeDasharray="6 3" />
-              <Scatter data={chartPoints} shape={<BubbleDot />}>
-                {chartPoints.map((p, i) => <Cell key={i} fill={p.color} />)}
-              </Scatter>
-            </ScatterChart>
+        ) : (
+          <ResponsiveContainer width="100%" height={460}>
+            <Treemap
+              data={treemapData}
+              dataKey="size"
+              aspectRatio={16 / 9}
+              content={<TreemapCell />}
+              onClick={(data: any) => {
+                if (data?.ticker) window.location.href = `/company/${(data.ticker as string).toLowerCase()}`;
+              }}
+            >
+              <Tooltip content={<TreemapTooltip />} />
+            </Treemap>
           </ResponsiveContainer>
-        </div>
+        )}
       </div>
 
       {/* Leaderboard — horizontal cards below chart */}
@@ -528,7 +511,7 @@ export default function MultiBaggerPage() {
                       {i === 0 && <Star size={8} fill="#d4a853" color="#d4a853" />}
                     </div>
                     <div className="text-xs" style={{ color: 'rgba(232,236,244,0.3)', fontSize: '10px' }}>
-                      ISCF {p.y} · {p.x > 0 ? `PE ${p.x}x` : 'PE N/A'}
+                      ISCF {p.y} · {p.quote.pe ? `PE ${p.quote.pe.toFixed(0)}×` : 'PE N/A'}
                     </div>
                   </div>
 
@@ -562,7 +545,6 @@ export default function MultiBaggerPage() {
                 <th className="text-left">Stock</th>
                 <th className="text-center">MB Score</th>
                 <th className="text-center">ISCF</th>
-                <th className="text-right">P/E</th>
                 <th className="text-right">Market Cap</th>
                 <th className="text-right">P/E</th>
                 <th className="text-right">ROE</th>
@@ -609,11 +591,6 @@ export default function MultiBaggerPage() {
                     </td>
                     <td className="text-center">
                       <span className="font-bold metric-number" style={{ color: iscfColor }}>{p.y}</span>
-                    </td>
-                    <td className="text-right">
-                      <span className="font-bold metric-number" style={{ color: p.x > 0 && p.x <= 15 ? '#10b981' : p.x <= 25 ? '#f59e0b' : 'rgba(232,236,244,0.5)' }}>
-                        {p.x > 0 ? `${p.x}x` : '—'}
-                      </span>
                     </td>
                     <td className="text-right">
                       <span className="text-sm metric-number" style={{ color: 'rgba(232,236,244,0.6)' }}>{mcLabel}</span>
