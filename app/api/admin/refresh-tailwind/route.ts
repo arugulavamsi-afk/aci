@@ -2,11 +2,26 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Budget documents — Budget Speech is concise (~30 pages) and has all key numbers.
-// Budget at a Glance covers sector allocations in tabular form.
+// Budget documents — try multiple URL patterns because the gov site sometimes
+// changes paths between years or blocks serverless IPs.
+// Order matters: first hit wins per label.
 const BUDGET_DOCS = [
-  { label: 'Budget Speech',        url: 'https://www.indiabudget.gov.in/doc/Speech/bs.pdf' },
-  { label: 'Budget at a Glance',   url: 'https://www.indiabudget.gov.in/doc/bh/bagall.pdf' },
+  {
+    label: 'Budget Speech',
+    urls: [
+      'https://www.indiabudget.gov.in/doc/Speech/bs.pdf',
+      'https://www.indiabudget.gov.in/bspeech/bs2627.pdf',   // FY2026-27 archived
+      'https://www.indiabudget.gov.in/bspeech/bs2526.pdf',   // FY2025-26 archived
+    ],
+  },
+  {
+    label: 'Budget at a Glance',
+    urls: [
+      'https://www.indiabudget.gov.in/doc/bh/bagall.pdf',
+      'https://www.indiabudget.gov.in/doc/Budget_at_Glance/bag.pdf',
+      'https://www.indiabudget.gov.in/doc/bh/bagh1.pdf',
+    ],
+  },
 ];
 
 const EXTRACTION_PROMPT = `You are analyzing India's Union Budget documents to extract sector-wise fiscal allocations and policy priorities for an investment scoring system.
@@ -50,20 +65,39 @@ Return ONLY valid JSON in this exact structure — no explanation, no markdown:
   }
 }`;
 
-async function fetchPdfAsBase64(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ACI-Platform/1.0)' },
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) return null;
-    const buffer = await res.arrayBuffer();
-    // Reject if suspiciously large (>15 MB) — likely wrong document
-    if (buffer.byteLength > 15_000_000) return null;
-    return Buffer.from(buffer).toString('base64');
-  } catch {
-    return null;
+interface FetchResult {
+  base64: string | null;
+  tried: Array<{ url: string; status: number | string }>;
+}
+
+async function fetchPdfAsBase64(urls: string[]): Promise<FetchResult> {
+  const tried: Array<{ url: string; status: number | string }> = [];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+          'Accept': 'application/pdf,*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': 'https://www.indiabudget.gov.in/',
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) { tried.push({ url, status: res.status }); continue; }
+      const ct = res.headers.get('content-type') ?? '';
+      const buffer = await res.arrayBuffer();
+      if (buffer.byteLength < 1000) { tried.push({ url, status: `too_small(${buffer.byteLength}b)` }); continue; }
+      if (buffer.byteLength > 15_000_000) { tried.push({ url, status: `too_large(${buffer.byteLength}b)` }); continue; }
+      // Ensure it's a PDF (starts with %PDF or content-type matches)
+      const header = Buffer.from(buffer.slice(0, 4)).toString('ascii');
+      if (!ct.includes('pdf') && header !== '%PDF') { tried.push({ url, status: `not_pdf(${ct})` }); continue; }
+      tried.push({ url, status: 200 });
+      return { base64: Buffer.from(buffer).toString('base64'), tried };
+    } catch (e) {
+      tried.push({ url, status: String(e).slice(0, 80) });
+    }
   }
+  return { base64: null, tried };
 }
 
 async function commitToGitHub(
@@ -115,17 +149,17 @@ export async function POST(req: Request) {
 
   // ── Step 1: Fetch budget PDFs in parallel ──────────────────────────────────
   const pdfResults = await Promise.all(
-    BUDGET_DOCS.map(async doc => ({
-      label: doc.label,
-      url: doc.url,
-      base64: await fetchPdfAsBase64(doc.url),
-    }))
+    BUDGET_DOCS.map(async doc => {
+      const result = await fetchPdfAsBase64(doc.urls);
+      return { label: doc.label, base64: result.base64, tried: result.tried };
+    })
   );
 
   const available = pdfResults.filter(r => r.base64 !== null);
   if (available.length === 0) {
+    const diagnostics = pdfResults.map(r => `${r.label}: ${r.tried.map(t => `${t.url} → ${t.status}`).join(', ')}`);
     return Response.json(
-      { error: 'Could not fetch any budget documents from indiabudget.gov.in' },
+      { error: `Could not fetch any budget documents from indiabudget.gov.in. Details: ${diagnostics.join(' | ')}` },
       { status: 502 }
     );
   }
