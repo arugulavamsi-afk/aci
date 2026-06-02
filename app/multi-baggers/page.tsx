@@ -12,38 +12,71 @@ import { computeIscfScore, scoreToConviction } from '@/lib/nse/scoring';
 type DbStatus = 'loading' | 'ok' | 'not_configured' | 'empty' | 'error';
 
 // ── Multi-Bagger Potential Score (0–100) ─────────────────────────────────────
-// Quality  40%  — ISCF score (7-factor compounder model)
-// Growth   30%  — Revenue growth rate (actual monetisation of opportunity)
-// Runway   20%  — Inverse market cap (smaller = more room left to 10x)
-// Value    10%  — PEG ratio (not overpaying for the growth)
+// ── MB Score — 7 factors, 100 pts total ──────────────────────────────────────
+// Quality        35  — ISCF 7-factor compounder score
+// Growth         20  — Revenue / EPS growth
+// Runway         15  — Inverse market cap (smaller = more room to 10×)
+// Valuation      10  — PEG or PE ratio
+// Cash Flow      10  — Operating cash flow yield (OCF / market cap)
+// Promoter       5   — Insider / promoter holding %
+// Momentum       5   — 52-week price position (confirmation signal)
 
 function computeMbScore(q: LiveQuote): number {
-  const iscf = computeIscfScore(q);
+  // 1. Quality (max 35)
+  const qualityPts = Math.round((computeIscfScore(q) / 100) * 35);
 
-  const qualityPts = Math.round((iscf / 100) * 40);
-
+  // 2. Growth (max 20)
   const g = q.revenueGrowth ?? q.earningsGrowth;
   const growthPts =
-    g == null ? 10
-    : g >= 40  ? 30 : g >= 25 ? 24 : g >= 15 ? 18
-    : g >= 8   ? 12 : g >= 0  ? 6  : 0;
+    g == null ? 8
+    : g >= 40  ? 20 : g >= 25 ? 17 : g >= 15 ? 14
+    : g >= 8   ? 10 : g >= 0  ?  5 : 0;
 
+  // 3. Runway — inverse market cap (max 15)
   const mcCr = (q.marketCap ?? 0) / 1e7;
   const runwayPts =
-    mcCr <= 0       ? 10
-    : mcCr < 3000   ? 20 : mcCr < 15000 ? 16 : mcCr < 50000 ? 12
-    : mcCr < 150000 ? 8  : 4;
+    mcCr <= 0       ?  7
+    : mcCr < 3000   ? 15 : mcCr < 15000 ? 12 : mcCr < 50000  ?  9
+    : mcCr < 150000 ?  6 : 3;
 
+  // 4. Valuation — PEG then PE (max 10)
   const pe = q.pe; const eg = q.earningsGrowth;
-  let valPts = 5;
+  let valPts = 4;
   if (pe && pe > 0 && eg && eg > 8) {
     const peg = pe / eg;
     valPts = peg < 0.5 ? 10 : peg < 1.0 ? 8 : peg < 1.5 ? 6 : peg < 2.5 ? 4 : 2;
   } else if (pe && pe > 0) {
     valPts = pe < 15 ? 9 : pe < 25 ? 7 : pe < 40 ? 5 : pe < 60 ? 3 : 2;
   }
+  valPts = Math.min(10, valPts);
 
-  return Math.min(100, qualityPts + growthPts + runwayPts + valPts);
+  // 5. Cash flow quality — OCF yield = OCF / market cap (max 10)
+  const ocf = q.operatingCashFlow;
+  const mc  = q.marketCap;
+  let cashPts = 3; // neutral when data unavailable
+  if (ocf != null && mc != null && mc > 0) {
+    if (ocf <= 0) cashPts = 0;
+    else {
+      const ocfYield = (ocf / mc) * 100;
+      cashPts = ocfYield >= 8 ? 10 : ocfYield >= 5 ? 8 : ocfYield >= 3 ? 6 : ocfYield >= 1 ? 4 : 2;
+    }
+  }
+
+  // 6. Promoter / insider holding (max 5)
+  const h = q.insiderHolding;
+  const promoterPts =
+    h == null  ? 2
+    : h >= 65  ? 5 : h >= 50 ? 4 : h >= 35 ? 3 : h >= 20 ? 2 : h > 0 ? 1 : 0;
+
+  // 7. 52-week momentum — where is price in annual range (max 5)
+  const range52 = q.week52High - q.week52Low;
+  let momentumPts = 3; // neutral when data unavailable
+  if (range52 > 0) {
+    const pos = (q.cmp - q.week52Low) / range52; // 0 = at low, 1 = at high
+    momentumPts = pos >= 0.75 ? 5 : pos >= 0.5 ? 4 : pos >= 0.3 ? 3 : pos >= 0.15 ? 2 : 1;
+  }
+
+  return Math.min(100, qualityPts + growthPts + runwayPts + valPts + cashPts + promoterPts + momentumPts);
 }
 
 function mbTier(score: number): { label: string; color: string } {
@@ -71,27 +104,51 @@ function getSectorColor(sector: string): string {
 }
 
 function computeMbComponents(q: LiveQuote) {
-  const iscf       = computeIscfScore(q);
-  const qualityPts = Math.round((iscf / 100) * 40);
-  const g          = q.revenueGrowth ?? q.earningsGrowth;
-  const growthPts  =
-    g == null ? 10
-    : g >= 40  ? 30 : g >= 25 ? 24 : g >= 15 ? 18
-    : g >= 8   ? 12 : g >= 0  ? 6  : 0;
-  const mcCr      = (q.marketCap ?? 0) / 1e7;
+  const qualityPts = Math.round((computeIscfScore(q) / 100) * 35);
+
+  const g = q.revenueGrowth ?? q.earningsGrowth;
+  const growthPts =
+    g == null ? 8
+    : g >= 40  ? 20 : g >= 25 ? 17 : g >= 15 ? 14
+    : g >= 8   ? 10 : g >= 0  ?  5 : 0;
+
+  const mcCr = (q.marketCap ?? 0) / 1e7;
   const runwayPts =
-    mcCr <= 0       ? 10
-    : mcCr < 3000   ? 20 : mcCr < 15000 ? 16 : mcCr < 50000 ? 12
-    : mcCr < 150000 ? 8  : 4;
+    mcCr <= 0       ?  7
+    : mcCr < 3000   ? 15 : mcCr < 15000 ? 12 : mcCr < 50000  ?  9
+    : mcCr < 150000 ?  6 : 3;
+
   const pe = q.pe; const eg = q.earningsGrowth;
-  let valPts = 5;
+  let valPts = 4;
   if (pe && pe > 0 && eg && eg > 8) {
     const peg = pe / eg;
     valPts = peg < 0.5 ? 10 : peg < 1.0 ? 8 : peg < 1.5 ? 6 : peg < 2.5 ? 4 : 2;
   } else if (pe && pe > 0) {
     valPts = pe < 15 ? 9 : pe < 25 ? 7 : pe < 40 ? 5 : pe < 60 ? 3 : 2;
   }
-  return { qualityPts, growthPts, runwayPts, valPts };
+  valPts = Math.min(10, valPts);
+
+  const ocf = q.operatingCashFlow; const mc = q.marketCap;
+  let cashPts = 3;
+  if (ocf != null && mc != null && mc > 0) {
+    if (ocf <= 0) cashPts = 0;
+    else {
+      const y = (ocf / mc) * 100;
+      cashPts = y >= 8 ? 10 : y >= 5 ? 8 : y >= 3 ? 6 : y >= 1 ? 4 : 2;
+    }
+  }
+
+  const h = q.insiderHolding;
+  const promoterPts = h == null ? 2 : h >= 65 ? 5 : h >= 50 ? 4 : h >= 35 ? 3 : h >= 20 ? 2 : h > 0 ? 1 : 0;
+
+  const range52 = q.week52High - q.week52Low;
+  let momentumPts = 3;
+  if (range52 > 0) {
+    const pos = (q.cmp - q.week52Low) / range52;
+    momentumPts = pos >= 0.75 ? 5 : pos >= 0.5 ? 4 : pos >= 0.3 ? 3 : pos >= 0.15 ? 2 : 1;
+  }
+
+  return { qualityPts, growthPts, runwayPts, valPts, cashPts, promoterPts, momentumPts };
 }
 
 interface StockPoint {
@@ -327,7 +384,7 @@ export default function MultiBaggerPage() {
           </div>
           <h1 className="text-2xl font-black" style={{ color: '#e8ecf4' }}>Potential Multi-Baggers</h1>
           <p className="text-sm mt-1" style={{ color: 'rgba(232,236,244,0.45)' }}>
-            Quality × Value × Runway — auto-screened from{' '}
+            Quality × Growth × Cash Flow × Promoter × Momentum — auto-screened from{' '}
             {dbStatus === 'ok'
               ? <span style={{ color: '#10b981' }}>{dbTotal.toLocaleString()} NSE stocks</span>
               : <span>the NSE universe</span>}
@@ -630,15 +687,18 @@ export default function MultiBaggerPage() {
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Quality', weight: '40%', desc: 'ISCF 7-factor score (tailwind, management, financial, moat, revenue, growth, valuation)', color: '#d4a853' },
-            { label: 'Growth',  weight: '30%', desc: 'Revenue growth rate — proves the opportunity is monetising; >25% earns full marks', color: '#10b981' },
-            { label: 'Runway',  weight: '20%', desc: 'Inverse market cap — small/mid caps (₹3K–15K Cr) score highest; mega-caps penalised', color: '#0c7b93' },
-            { label: 'Value',   weight: '10%', desc: 'PEG ratio (PE ÷ earnings growth) when growth >8%; absolute PE as fallback', color: '#8b5cf6' },
+            { label: 'Quality',    weight: '35', desc: 'ISCF 7-factor score — structural tailwind, management, financial strength, moat, revenue opportunity, growth efficiency, valuation', color: '#d4a853' },
+            { label: 'Growth',     weight: '20', desc: 'Revenue or EPS growth — proves the tailwind is actually monetising; ≥40% earns full marks', color: '#10b981' },
+            { label: 'Runway',     weight: '15', desc: 'Inverse market cap — small/mid caps (₹3K–15K Cr) score highest; mega-caps already partly re-rated', color: '#0c7b93' },
+            { label: 'Valuation',  weight: '10', desc: 'PEG ratio (PE ÷ earnings growth) when growth >8%; falls back to absolute PE — low PE earns more', color: '#8b5cf6' },
+            { label: 'Cash Flow',  weight: '10', desc: 'OCF yield (operating cash flow ÷ market cap) — filters accounting-profit compounders from real cash generators', color: '#2bb5d4' },
+            { label: 'Promoter',   weight: '5',  desc: 'Insider / promoter holding % — ≥50% signals skin-in-the-game alignment; critical for Indian mid-caps', color: '#f59e0b' },
+            { label: 'Momentum',   weight: '5',  desc: '52-week price position — stock above 75% of annual range confirms the story; near lows flags potential value trap', color: '#ec4899' },
           ].map(m => (
             <div key={m.label} className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${m.color}15` }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="font-bold text-sm" style={{ color: m.color }}>{m.label}</span>
-                <span className="text-xs font-black metric-number" style={{ color: m.color }}>{m.weight}</span>
+                <span className="text-xs font-black metric-number" style={{ color: m.color }}>{m.weight} pts</span>
               </div>
               <p className="text-xs leading-relaxed" style={{ color: 'rgba(232,236,244,0.45)', fontSize: '11px' }}>{m.desc}</p>
             </div>
