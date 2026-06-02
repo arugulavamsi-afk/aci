@@ -17,7 +17,6 @@ const UA           = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 const BATCH_SIZE   = 400;
 const NSE_MAIN     = 'https://archives.nseindia.com/content/equities/EQUITY_L.csv';
 const NSE_SME      = 'https://archives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv';
-const BSE_LIST     = 'https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&industry=&segment=Equity&status=Active';
 const VALID_SERIES = new Set(['EQ', 'BE', 'SM', 'ST']);
 
 const YAHOO_FIELDS = [
@@ -59,7 +58,7 @@ function computeRoce(q: any): number | null {
 
 // ── Symbol fetching ───────────────────────────────────────────────────────────
 
-interface SymbolEntry { symbol: string; exchange: 'NSE' | 'BSE' }
+interface SymbolEntry { symbol: string; exchange: 'NSE' }
 
 async function fetchText(url: string): Promise<string | null> {
   try {
@@ -67,19 +66,11 @@ async function fetchText(url: string): Promise<string | null> {
     return res.ok ? res.text() : null;
   } catch { return null; }
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchJson(url: string): Promise<any> {
-  try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
-    return res.ok ? res.json() : null;
-  } catch { return null; }
-}
 
 async function getAllSymbols(): Promise<SymbolEntry[]> {
-  const [mainCsv, smeCsv, bseData] = await Promise.all([
+  const [mainCsv, smeCsv] = await Promise.all([
     fetchText(NSE_MAIN),
     fetchText(NSE_SME),
-    fetchJson(BSE_LIST),
   ]);
 
   const nseIsins = new Set<string>();
@@ -101,19 +92,6 @@ async function getAllSymbols(): Promise<SymbolEntry[]> {
 
   if (mainCsv) parseNse(mainCsv, false);
   if (smeCsv)  parseNse(smeCsv,  true);
-
-  // BSE-only: companies whose ISIN is not in NSE
-  const bseTable = bseData?.Table ?? bseData?.table ?? [];
-  if (Array.isArray(bseTable)) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    bseTable.forEach((r: any) => {
-      const sym  = String(r.Scrip_Code ?? r.scripCode ?? '').trim();
-      const isin = String(r.ISIN_No ?? r.ISIN ?? '').trim();
-      if (sym && isin && !nseIsins.has(isin)) {
-        entries.push({ symbol: sym, exchange: 'BSE' });
-      }
-    });
-  }
 
   return entries;
 }
