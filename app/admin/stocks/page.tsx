@@ -48,11 +48,7 @@ export default function StocksAdminPage() {
     setRefreshing(true);
     setResult(null);
     try {
-      const secret = process.env.NEXT_PUBLIC_CRON_SECRET ?? '';
-      const url = secret
-        ? `/api/cron/refresh-stocks?secret=${encodeURIComponent(secret)}`
-        : '/api/cron/refresh-stocks';
-      const r = await fetch(url);
+      const r = await fetch('/api/admin/run-refresh', { method: 'POST' });
       const d = await r.json();
       setResult(d);
       // Re-fetch stats

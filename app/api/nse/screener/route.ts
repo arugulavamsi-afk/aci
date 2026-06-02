@@ -38,11 +38,12 @@ export async function GET(req: NextRequest) {
     //   quality_pts: roe             (max 20 via cap)
     //   runway_pen : market cap tiers (large caps penalised)
 
-    const rows = await sql`
+    // Try strict filter first (quality stocks with market cap data)
+    let rows = await sql`
       SELECT *
       FROM stock_data
       WHERE
-        cmp                > 0
+        cmp::numeric       > 0
         AND market_cap     > 5000000000
         AND (
           revenue_growth  IS NOT NULL
@@ -68,6 +69,18 @@ export async function GET(req: NextRequest) {
       ) DESC NULLS LAST
       LIMIT ${limit}
     ` as unknown as StockRow[];
+
+    // Fallback: if strict filter returns nothing, use any stock with a price
+    // (handles cases where Yahoo Finance didn't return market_cap or quality metrics)
+    if (rows.length === 0) {
+      rows = await sql`
+        SELECT *
+        FROM stock_data
+        WHERE cmp::numeric > 0
+        ORDER BY market_cap DESC NULLS LAST, updated_at DESC NULLS LAST
+        LIMIT ${limit}
+      ` as unknown as StockRow[];
+    }
 
     const quotes = rows.map(rowToLiveQuote);
     return Response.json({ dbConfigured: true, quotes, total: quotes.length });
