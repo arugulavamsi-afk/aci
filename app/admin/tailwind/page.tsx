@@ -386,7 +386,7 @@ export default function TailwindAdminPage() {
         <h3 className="font-bold text-sm" style={{ color: '#e8ecf4' }}>Required environment variables</h3>
         <div className="space-y-2">
           {[
-            { key: 'ANTHROPIC_API_KEY', desc: 'Claude API key — for PDF extraction', required: true },
+            { key: 'GROQ_API_KEY', desc: 'Groq API key — for PDF text extraction (free at console.groq.com)', required: true },
             { key: 'GITHUB_TOKEN',      desc: 'GitHub fine-grained PAT with repo Contents write permission', required: true },
             { key: 'GITHUB_OWNER',      desc: 'GitHub username (default: arugulavamsi-afk)', required: false },
             { key: 'GITHUB_REPO',       desc: 'Repository name (default: aci)', required: false },

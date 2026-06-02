@@ -1,6 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const MODEL = 'llama-3.3-70b-versatile';
 
 // Budget documents — try multiple URL patterns.
 // The gov site consistently blocks Vercel IPs (returns 503), so this is a
@@ -26,7 +28,7 @@ const BUDGET_DOCS = [
 
 const EXTRACTION_PROMPT = `You are analyzing India's Union Budget documents to extract sector-wise fiscal allocations and policy priorities for an investment scoring system.
 
-From the provided budget documents, extract data for EACH of these sectors:
+From the provided budget text, extract data for EACH of these sectors:
 defense, power_renewable, railways, semiconductor, water_infra, roads_ports_logistics,
 shipbuilding, ev_mobility, pharma_healthcare, drone_space, digital_it, specialty_chemicals,
 financial_services, capital_goods, pli_manufacturing, agri_food, real_estate
@@ -46,13 +48,13 @@ Scoring guidelines for policyWeight:
 - 9-11: Mentioned but not a priority
 - 0-8:  Not mentioned or being cut
 
-Return ONLY valid JSON in this exact structure — no explanation, no markdown:
+Return ONLY valid JSON — no explanation, no markdown fences:
 {
   "lastUpdated": "<today's date YYYY-MM-DD>",
-  "budgetYear": "<budget year e.g. FY2025-26>",
+  "budgetYear": "<budget year e.g. FY2026-27>",
   "presentedOn": "<budget presentation date YYYY-MM-DD>",
-  "extractedBy": "Claude claude-sonnet-4-6 — automated extraction",
-  "sourceDocuments": ["<list of PDF URLs or filenames used>"],
+  "extractedBy": "Groq llama-3.3-70b-versatile — automated extraction",
+  "sourceDocuments": ["<list of document names used>"],
   "sectors": {
     "<sector_key>": {
       "policyWeight": <number>,
@@ -65,7 +67,7 @@ Return ONLY valid JSON in this exact structure — no explanation, no markdown:
   }
 }`;
 
-interface PdfDoc { label: string; base64: string }
+interface PdfDoc { label: string; text: string }
 
 async function tryFetchDocs(): Promise<{ docs: PdfDoc[]; diagnostics: string }> {
   const results = await Promise.all(
@@ -81,45 +83,56 @@ async function tryFetchDocs(): Promise<{ docs: PdfDoc[]; diagnostics: string }> 
             signal: AbortSignal.timeout(25000),
           });
           if (!res.ok) continue;
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength < 1000 || buf.byteLength > 15_000_000) continue;
-          const header = Buffer.from(buf.slice(0, 4)).toString('ascii');
-          const ct = res.headers.get('content-type') ?? '';
-          if (!ct.includes('pdf') && header !== '%PDF') continue;
-          return { label: doc.label, base64: Buffer.from(buf).toString('base64'), status: `${url} → 200` };
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length < 1000 || buf.length > 15_000_000) continue;
+          if (buf.subarray(0, 4).toString('ascii') !== '%PDF') continue;
+          const { text } = await pdfParse(buf);
+          return { label: doc.label, text: text.slice(0, 60000), status: `${url} → 200` };
         } catch {
           // try next url
         }
       }
-      return { label: doc.label, base64: null as string | null, status: doc.urls.map(u => `${u} → 503`).join(', ') };
+      return { label: doc.label, text: null as string | null, status: doc.urls.map(u => `${u} → 503`).join(', ') };
     })
   );
 
-  const docs = results.filter(r => r.base64 !== null).map(r => ({ label: r.label, base64: r.base64! }));
+  const docs = results.filter(r => r.text !== null).map(r => ({ label: r.label, text: r.text! }));
   const diagnostics = results.map(r => `${r.label}: ${r.status}`).join(' | ');
   return { docs, diagnostics };
 }
 
-async function extractWithClaude(
-  docs: PdfDoc[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const contentBlocks: any[] = docs.map(doc => ({
-    type: 'document',
-    source: { type: 'base64', media_type: 'application/pdf', data: doc.base64 },
-    title: doc.label,
-  }));
-  contentBlocks.push({ type: 'text', text: EXTRACTION_PROMPT });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function extractWithGroq(docs: PdfDoc[], apiKey: string): Promise<any> {
+  // Groq has an 8K output + 128K context limit; truncate each doc to keep total under ~100K tokens (~75K chars)
+  const perDocLimit = Math.floor(75000 / Math.max(docs.length, 1));
+  const docText = docs
+    .map(d => `=== ${d.label} ===\n${d.text.slice(0, perDocLimit)}`)
+    .join('\n\n');
 
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    messages: [{ role: 'user', content: contentBlocks }],
+  const userMessage = `${docText}\n\n---\n${EXTRACTION_PROMPT}`;
+
+  const res = await fetch(GROQ_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 4096,
+      temperature: 0.1,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
   });
 
-  const raw = (message.content[0] as { text: string }).text;
-  const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Groq API error ${res.status}: ${err}`);
+  }
+
+  const data = await res.json() as { choices: Array<{ message: { content: string } }> };
+  const raw = data.choices[0].message.content;
+  const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
   const config = JSON.parse(cleaned);
   if (!config.sectors || typeof config.sectors !== 'object') throw new Error('Missing sectors object');
   return config;
@@ -167,8 +180,9 @@ async function commitToGitHub(
 // Mode B — FormData:   pdf0: File, pdf1?: File, commit: "true"|"false"
 //   Uses uploaded PDFs directly (bypasses gov site).
 export async function POST(req: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    return Response.json({ error: 'GROQ_API_KEY not configured' }, { status: 500 });
   }
 
   let docs: PdfDoc[] = [];
@@ -186,11 +200,11 @@ export async function POST(req: Request) {
     for (const key of ['pdf0', 'pdf1', 'pdf2']) {
       const file = form.get(key);
       if (!file || !(file instanceof File)) continue;
-      const buf = await file.arrayBuffer();
-      if (buf.byteLength < 1000) continue;
-      const header = Buffer.from(buf.slice(0, 4)).toString('ascii');
-      if (header !== '%PDF') continue;
-      docs.push({ label: file.name.replace(/\.pdf$/i, ''), base64: Buffer.from(buf).toString('base64') });
+      const buf = Buffer.from(await file.arrayBuffer());
+      if (buf.length < 1000) continue;
+      if (buf.subarray(0, 4).toString('ascii') !== '%PDF') continue;
+      const { text } = await pdfParse(buf);
+      docs.push({ label: file.name.replace(/\.pdf$/i, ''), text: text.slice(0, 60000) });
     }
 
     if (docs.length === 0) {
@@ -211,10 +225,10 @@ export async function POST(req: Request) {
     docs = fetched;
   }
 
-  // ── Extract with Claude ──────────────────────────────────────────────────
+  // ── Extract with Groq ────────────────────────────────────────────────────
   let newConfig;
   try {
-    newConfig = await extractWithClaude(docs);
+    newConfig = await extractWithGroq(docs, apiKey);
   } catch (err) {
     return Response.json({ error: `Extraction failed: ${String(err)}` }, { status: 500 });
   }
