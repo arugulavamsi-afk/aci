@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Search, Building2, Star, Bot, BarChart3,
-  TrendingUp, Shield, Zap, ChevronRight
+  LayoutDashboard, Search, Building2, Star, Bot,
+  TrendingUp, Shield, Zap, ChevronRight, Database, Landmark, FileText,
 } from 'lucide-react';
 
 const navItems = [
@@ -61,6 +61,27 @@ export default function Sidebar() {
           </p>
           {navItems.map(({ href, icon: Icon, label }) => {
             const active = pathname === href || (href !== '/' && pathname.startsWith(href));
+            return (
+              <Link key={href} href={href} className={`nav-item mb-1 ${active ? 'active' : ''}`}>
+                <Icon size={16} strokeWidth={active ? 2.5 : 2} />
+                <span>{label}</span>
+                {active && <ChevronRight size={12} className="ml-auto" style={{ color: '#d4a853' }} />}
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Admin */}
+        <div className="mb-6">
+          <p className="px-3 mb-2 text-xs font-semibold tracking-widest uppercase" style={{ color: 'rgba(232,236,244,0.25)', fontSize: '10px' }}>
+            Admin
+          </p>
+          {[
+            { href: '/admin/stocks',           icon: Database,  label: 'Stock Database' },
+            { href: '/admin/gov-intelligence', icon: Landmark,  label: 'Gov Intelligence' },
+            { href: '/admin/tailwind',         icon: FileText,  label: 'Tailwind Config' },
+          ].map(({ href, icon: Icon, label }) => {
+            const active = pathname.startsWith(href);
             return (
               <Link key={href} href={href} className={`nav-item mb-1 ${active ? 'active' : ''}`}>
                 <Icon size={16} strokeWidth={active ? 2.5 : 2} />
